@@ -54,6 +54,18 @@ describe("가져오기", () => {
     expect(results[7].reasons[0]).toContain("파일 8행");
   });
 
+  it("휴대폰 번호가 없거나 서로 다른 두 사람과 겹치는 행은 오류로 표시한다", async () => {
+    const acct = { bankName: "국민", accountNumber: "123456789012", accountHolder: "갑" };
+    await createWorker(sql, workerInputSchema.parse({ name: "갑", phone: "01000000001", ...acct }), adminId);
+    await createWorker(sql, workerInputSchema.parse({ name: "을", phone: "01000000002" }), adminId);
+    const { results } = await validateImport(sql, [
+      ["번호없음", "", "1", "", "", ""],
+      ["겹침", "01000000002", "1", "국민", "123456789012", "을"],
+    ], mapping);
+    expect(results.map((r) => r.status)).toEqual(["error", "error"]);
+    expect(results[1].errors[0]).toContain("서로 다른 근무자");
+  });
+
   it("앞자리 0이 사라진 휴대폰 번호를 복원해 중복을 찾는다", async () => {
     await createWorker(sql, workerInputSchema.parse({ name: "기존", phone: "01012345678" }), adminId);
     const { results } = await validateImport(sql, [["누구", "1012345678", "", "", "", ""]], mapping);
@@ -114,12 +126,12 @@ describe("내보내기", () => {
   }
 
   it("수식처럼 보이는 값을 수식이 아닌 문자열로 저장한다", async () => {
-    await createWorker(sql, workerInputSchema.parse({ name: '=HYPERLINK("http://evil","x")' }), adminId);
+    await createWorker(sql, workerInputSchema.parse({ name: '=HYPERLINK("http://evil","x")', phone: "01012345678" }), adminId);
     const { buffer } = await buildExport(sql, { type: "workers", adminId });
     const ws = await read(buffer);
-    const v = ws.getRow(2).getCell(2).value;
+    const v = ws.getRow(2).getCell(1).value;
     expect(typeof v).toBe("string");
-    expect(ws.getRow(2).getCell(2).type).toBe(ExcelJS.ValueType.String);
+    expect(ws.getRow(2).getCell(1).type).toBe(ExcelJS.ValueType.String);
   });
 
   it("다섯 종류 내보내기가 모두 동작하고 이력이 남는다", async () => {

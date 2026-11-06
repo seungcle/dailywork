@@ -6,11 +6,12 @@ import { kst, resetDb, seedAdmin, seedKiosk, seedWorker, sql } from "./helpers";
 
 let adminId: string, actor: Actor, num: number, workerId: string;
 
+const PHONE = "01055550000";
 beforeEach(async () => {
   await resetDb();
   adminId = (await seedAdmin()).id;
   actor = { kind: "kiosk", deviceId: (await seedKiosk(adminId)).id };
-  const w = await seedWorker(adminId);
+  const w = await seedWorker(adminId, { phone: PHONE });
   num = w.worker_number;
   workerId = w.id;
 });
@@ -114,25 +115,25 @@ describe("동시 요청", () => {
 describe("근무자 상태", () => {
   it("없는 번호는 거절한다", async () => {
     await expect(clockIn(sql, { workerNumber: 999999, actor })).rejects.toSatisfy((e) => code(e) === "WORKER_NOT_FOUND");
-    await expect(lookupForKiosk(sql, 999999)).rejects.toSatisfy((e) => code(e) === "WORKER_NOT_FOUND");
+    await expect(lookupForKiosk(sql, "01000000000")).rejects.toSatisfy((e) => code(e) === "WORKER_NOT_FOUND");
   });
 
   it("비활성 근무자는 출근과 퇴근 모두 막는다", async () => {
     await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:00:00") });
     await setWorkerActive(sql, workerId, false, adminId);
     await expect(clockOut(sql, { workerNumber: num, actor, now: kst("2026-03-02T17:00:00") })).rejects.toSatisfy((e) => code(e) === "WORKER_INACTIVE");
-    await expect(lookupForKiosk(sql, num)).rejects.toSatisfy((e) => code(e) === "WORKER_INACTIVE");
+    await expect(lookupForKiosk(sql, PHONE)).rejects.toSatisfy((e) => code(e) === "WORKER_INACTIVE");
   });
 
   it("키오스크 조회는 이름을 가리고 상태를 알려 준다", async () => {
     await sql`UPDATE workers SET name = '홍길동' WHERE id = ${workerId}`;
     const now = kst("2026-03-02T08:00:00");
-    const a = await lookupForKiosk(sql, num, now);
-    expect(a).toEqual({ workerNumber: num, maskedName: "홍*동", state: "can_clock_in" });
+    const a = await lookupForKiosk(sql, PHONE, now);
+    expect(a).toEqual({ maskedName: "홍*동", state: "can_clock_in" });
     await clockIn(sql, { workerNumber: num, actor, now });
-    expect((await lookupForKiosk(sql, num, kst("2026-03-02T09:00:00"))).state).toBe("can_clock_out");
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T09:00:00"))).state).toBe("can_clock_out");
     await clockOut(sql, { workerNumber: num, actor, now: kst("2026-03-02T17:00:00") });
-    expect((await lookupForKiosk(sql, num, kst("2026-03-02T18:00:00"))).state).toBe("completed_today");
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T18:00:00"))).state).toBe("completed_today");
   });
 });
 

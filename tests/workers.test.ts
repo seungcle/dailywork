@@ -5,11 +5,11 @@ import { resetDb, seedAdmin, seedWorker, sql } from "./helpers";
 
 let adminId: string;
 beforeEach(async () => { await resetDb(); adminId = (await seedAdmin()).id; });
-const input = (o: Record<string, unknown>) => workerInputSchema.parse(o);
+const input = (o: Record<string, unknown>) => workerInputSchema.parse({ phone: "01012349999", ...o });
 
-describe("고유번호", () => {
+describe("근무자 내부 번호", () => {
   it("동시에 등록해도 번호가 겹치지 않는다", async () => {
-    const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => createWorker(sql, input({ name: `동시${i}` }), adminId)));
+    const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => createWorker(sql, input({ name: `동시${i}`, phone: `0108888${String(i).padStart(4, "0")}` }), adminId)));
     expect(new Set(rs.map((r) => r.worker_number)).size).toBe(20);
   });
   it("발급 후 바꿀 수 없다", async () => {
@@ -41,8 +41,8 @@ describe("민감정보 보호", () => {
   });
 
   it("같은 값도 암호문은 매번 달라진다", async () => {
-    const a = await createWorker(sql, input({ name: "가", ...acct }), adminId, { allowDuplicate: true });
-    const b = await createWorker(sql, input({ name: "나", ...acct }), adminId, { allowDuplicate: true });
+    const a = await createWorker(sql, input({ name: "가", phone: "01012341111", ...acct }), adminId, { allowDuplicate: true });
+    const b = await createWorker(sql, input({ name: "나", phone: "01012342222", ...acct }), adminId, { allowDuplicate: true });
     const rows = await sql<{ account_number_enc: string; account_number_hash: string }[]>`SELECT account_number_enc, account_number_hash FROM worker_payment_accounts WHERE worker_id IN (${a.id}, ${b.id})`;
     expect(rows[0].account_number_enc).not.toBe(rows[1].account_number_enc);
     expect(rows[0].account_number_hash).toBe(rows[1].account_number_hash);
@@ -70,10 +70,34 @@ describe("민감정보 보호", () => {
 });
 
 describe("중복 감지와 검색", () => {
-  it("전화번호·계좌 일치는 등록을 막고, 확인 후 등록할 수 있다", async () => {
-    await createWorker(sql, input({ name: "김갑", phone: "010-1234-5678" }), adminId);
-    await expect(createWorker(sql, input({ name: "다른이름", phone: "01012345678" }), adminId)).rejects.toMatchObject({ code: "DUPLICATE_WORKER" });
-    await expect(createWorker(sql, input({ name: "다른이름", phone: "01012345678" }), adminId, { allowDuplicate: true })).resolves.toBeTruthy();
+  it("같은 휴대폰 번호는 확인을 거쳐도 등록할 수 없다", async () => {
+    const w = await createWorker(sql, input({ name: "김갑", phone: "010-1234-5678" }), adminId);
+    await expect(createWorker(sql, input({ name: "다른이름", phone: "01012345678" }), adminId)).rejects.toMatchObject({ code: "PHONE_TAKEN" });
+    await expect(createWorker(sql, input({ name: "다른이름", phone: "01012345678" }), adminId, { allowDuplicate: true })).rejects.toMatchObject({ code: "PHONE_TAKEN" });
+    const other = await createWorker(sql, input({ name: "이을", phone: "01012340000" }), adminId);
+    await expect(updateWorker(sql, other.id, input({ name: "이을", phone: "01012345678" }), adminId)).rejects.toMatchObject({ code: "PHONE_TAKEN" });
+    // 자기 번호를 그대로 저장하는 것은 문제없다.
+    await expect(updateWorker(sql, w.id, input({ name: "김갑갑", phone: "01012345678" }), adminId)).resolves.toBeUndefined();
+  });
+
+  it("동시에 같은 번호로 등록해도 한 명만 들어간다", async () => {
+    const results = await Promise.allSettled(Array.from({ length: 10 }, (_, i) => createWorker(sql, input({ name: `동시${i}`, phone: "01012345678" }), adminId)));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    for (const r of results) if (r.status === "rejected") expect(r.reason).toMatchObject({ code: "PHONE_TAKEN" });
+  });
+
+  it("휴대폰 번호는 필수이고 010 번호만 받는다", () => {
+    for (const phone of [null, "", "02-123-4567", "011-123-4567", "010-1234"]) {
+      expect(workerInputSchema.safeParse({ name: "김갑", phone }).success).toBe(false);
+    }
+    expect(input({ name: "김갑", phone: "010-1234-5678" }).phone).toBe("01012345678");
+  });
+
+  it("같은 계좌는 등록을 막고, 확인 후 등록할 수 있다", async () => {
+    const acct = { bankName: "국민", accountNumber: "123456789012", accountHolder: "김갑" };
+    await createWorker(sql, input({ name: "김갑", phone: "01012345678", ...acct }), adminId);
+    await expect(createWorker(sql, input({ name: "이을", phone: "01012340000", ...acct }), adminId)).rejects.toMatchObject({ code: "DUPLICATE_WORKER" });
+    await expect(createWorker(sql, input({ name: "이을", phone: "01012340000", ...acct }), adminId, { allowDuplicate: true })).resolves.toBeTruthy();
   });
 
   it("이름만 같으면 약한 후보로 알려 주고 등록은 허용한다", async () => {
@@ -84,11 +108,10 @@ describe("중복 감지와 검색", () => {
     await expect(createWorker(sql, input({ name: "김갑", phone: "01033334444" }), adminId)).resolves.toBeTruthy();
   });
 
-  it("이름·번호·전화번호로 검색하고 특수문자는 일반 문자로 처리한다", async () => {
+  it("이름·휴대폰 번호로 검색하고 특수문자는 일반 문자로 처리한다", async () => {
     const w = await createWorker(sql, input({ name: "홍길동", phone: "01055556666", baseDailyWage: 100 }), adminId);
     await createWorker(sql, input({ name: "이순신", phone: "01077778888" }), adminId);
     expect((await listWorkers(sql, { q: "길동" })).rows.map((r) => r.id)).toEqual([w.id]);
-    expect((await listWorkers(sql, { q: String(w.worker_number) })).rows.map((r) => r.id)).toEqual([w.id]);
     expect((await listWorkers(sql, { q: "5556" })).rows.map((r) => r.id)).toEqual([w.id]);
     expect((await listWorkers(sql, { q: "%" })).rows).toHaveLength(0);
   });

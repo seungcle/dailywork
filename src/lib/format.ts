@@ -48,6 +48,13 @@ export function formatPhone(p: string | null | undefined) {
   if (p.length === 9) return `${p.slice(0, 2)}-${p.slice(2, 5)}-${p.slice(5)}`;
   return p;
 }
+/** 입력 중인 휴대폰 번호에 하이픈을 넣는다: 01012345678 → 010-1234-5678 */
+export function formatPhoneInput(input: string) {
+  const d = input.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+}
 /** 키오스크 화면용 이름 가림: 홍길동 → 홍*동, 이산 → 이* */
 export function maskName(name: string) {
   const c = [...name.trim()];

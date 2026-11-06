@@ -14,10 +14,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useApiData } from "@/hooks/use-api-data";
 import { api } from "@/lib/api";
-import { addDays, formatClock, formatDateTime, formatWon, fromKstInput, kstDate, toKstInput } from "@/lib/format";
+import { addDays, formatClock, formatDateTime, formatPhone, formatWon, fromKstInput, kstDate, toKstInput } from "@/lib/format";
 
 type Row = {
-  record_id: string; worker_id: string; worker_number: number; name: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null;
+  record_id: string; worker_id: string; phone: string; name: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null;
   source: string; base_wage: number; actual_wage: number; extra_pay: number; final_wage: number; wage_status: string; attendance_status: string;
 };
 type Daily = { date: string; rows: Row[]; summary: { total: number; working: number; done: number; scheduled: number; missingOut: number; totalWage: number } };
@@ -36,8 +36,9 @@ export function AttendanceBoard({ date }: { date: string }) {
 
   const rows = useMemo(() => {
     const s = q.trim();
+    const digits = s.replace(/\D/g, "");
     if (!data) return [];
-    return s ? data.rows.filter((r) => r.name.includes(s) || String(r.worker_number).startsWith(s)) : data.rows;
+    return s ? data.rows.filter((r) => r.name.includes(s) || (digits !== "" && r.phone.includes(digits))) : data.rows;
   }, [data, q]);
   const stale = data && data.date !== date;
 
@@ -68,22 +69,22 @@ export function AttendanceBoard({ date }: { date: string }) {
           <Panel className="mt-4" title={`출석 명단 (${rows.length}명)`} actions={
             <div className="relative">
               <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input className="h-7 w-44 pl-7 text-xs" placeholder="이름·번호 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input className="h-7 w-44 pl-7 text-xs" placeholder="이름·휴대폰 번호 검색" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           }>
             {rows.length === 0 ? <EmptyState>{q ? "검색 결과가 없습니다." : "이 날짜의 출석 기록이 없습니다. 키오스크로 출근하거나 근무자를 추가하면 표시됩니다."}</EmptyState> : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-16">번호</TableHead><TableHead>이름</TableHead><TableHead>출근</TableHead><TableHead>퇴근</TableHead><TableHead>상태</TableHead><TableHead>등록</TableHead>
+                    <TableHead>이름</TableHead><TableHead className="w-32">휴대폰 번호</TableHead><TableHead>출근</TableHead><TableHead>퇴근</TableHead><TableHead>상태</TableHead><TableHead>등록</TableHead>
                     <TableHead className="w-32 text-right">당일 일당</TableHead><TableHead className="w-28 text-right">추가 지급</TableHead><TableHead className="text-right">최종 일당</TableHead><TableHead>정산</TableHead><TableHead className="w-24" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => (
                     <TableRow key={r.record_id}>
-                      <TableCell className="tabular-nums">{r.worker_number}</TableCell>
                       <TableCell className="font-medium">{r.name}</TableCell>
+                      <TableCell className="tabular-nums">{formatPhone(r.phone)}</TableCell>
                       <TableCell className="tabular-nums">{formatClock(r.clock_in_at, r.work_date)}</TableCell>
                       <TableCell className="tabular-nums">{formatClock(r.clock_out_at, r.work_date)}</TableCell>
                       <TableCell><AttendanceBadge status={r.attendance_status} /></TableCell>
@@ -120,7 +121,7 @@ export function AttendanceBoard({ date }: { date: string }) {
           } catch (e) { toast.error((e as Error).message); throw e; }
         }} />
       <ConfirmDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)} title="출석 기록 삭제" destructive confirmLabel="삭제" reasonLabel="삭제 사유"
-        description={deleting && `${deleting.name}(${deleting.worker_number}) 님의 ${deleting.work_date} 기록을 출석부와 정산에서 뺍니다. 이력은 남습니다.`}
+        description={deleting && `${deleting.name} 님의 ${deleting.work_date} 기록을 출석부와 정산에서 뺍니다. 이력은 남습니다.`}
         onConfirm={async (reason) => {
           try {
             await api(`/api/admin/attendance/${deleting!.record_id}`, { method: "DELETE", body: { reason } });
@@ -204,7 +205,7 @@ function EditDialog({ row, onClose, onDone }: { row: Row; onClose: () => void; o
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>출퇴근 시각 보정</DialogTitle>
-          <DialogDescription>{row.name} ({row.worker_number}) · 근무일 {row.work_date}. 자정을 넘긴 근무는 퇴근 날짜를 다음 날로 입력하세요.</DialogDescription>
+          <DialogDescription>{row.name} · 근무일 {row.work_date}. 자정을 넘긴 근무는 퇴근 날짜를 다음 날로 입력하세요.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5"><Label htmlFor="ed-in">출근 시각</Label><Input id="ed-in" type="datetime-local" value={clockIn} onChange={(e) => setClockIn(e.target.value)} /></div>
@@ -249,7 +250,7 @@ function HistoryDialog({ row, onClose }: { row: Row; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>변경 이력</DialogTitle><DialogDescription>{row.name} ({row.worker_number}) · {row.work_date}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>변경 이력</DialogTitle><DialogDescription>{row.name} · {row.work_date}</DialogDescription></DialogHeader>
         {loading ? <LoadingState /> : data?.logs.length === 0 ? <EmptyState>관리자가 변경한 내역이 없습니다.</EmptyState> : (
           <ul className="max-h-96 space-y-2 overflow-y-auto">
             {data?.logs.map((l) => (

@@ -42,7 +42,7 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
   return (
     <>
       <Link href="/workers" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />근무자 목록</Link>
-      <PageHeader title={`${w.name} · ${w.worker_number}번`} description={`등록일 ${formatDateTime(w.created_at)}`}>
+      <PageHeader title={w.name} description={`등록일 ${formatDateTime(w.created_at)}`}>
         <Button variant="outline" onClick={() => setToggleOpen(true)}>{w.is_active ? <><UserX className="size-4" />비활성화</> : <><UserCheck className="size-4" />다시 활성화</>}</Button>
         <Button onClick={() => setEditOpen(true)}><Pencil className="size-4" />정보 수정</Button>
       </PageHeader>
@@ -54,9 +54,8 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
       </div>
       <Panel className="mt-4" title="기본 정보">
         <dl className="grid gap-x-6 gap-y-3 p-4 text-sm sm:grid-cols-2">
-          <Item label="키오스크 고유번호"><span className="text-lg font-semibold tabular-nums text-primary">{w.worker_number}</span></Item>
+          <Item label="휴대폰 번호 (키오스크 출퇴근용)"><span className="text-lg font-semibold tabular-nums text-primary">{formatPhone(w.phone)}</span></Item>
           <Item label="상태">{w.is_active ? <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">활성</Badge> : <Badge variant="secondary">비활성</Badge>}</Item>
-          <Item label="전화번호">{formatPhone(w.phone)}</Item>
           <Item label="기본 일당">{formatWon(w.base_daily_wage)}</Item>
           <Item label="계좌">
             {w.account_last4 ? (

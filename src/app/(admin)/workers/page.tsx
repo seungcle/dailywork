@@ -50,7 +50,7 @@ export default function WorkersPage() {
       <div className="mb-3 flex flex-wrap gap-2">
         <div className="relative min-w-64 flex-1 sm:max-w-sm">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-8" aria-label="근무자 검색" placeholder="이름, 고유번호, 전화번호 검색" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+          <Input className="pl-8" aria-label="근무자 검색" placeholder="이름, 휴대폰 번호 검색" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         </div>
         <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
           <SelectTrigger className="w-28" aria-label="상태 필터"><SelectValue /></SelectTrigger>
@@ -65,14 +65,13 @@ export default function WorkersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {header("worker_number", "번호")}{header("name", "이름")}<TableHead>전화번호</TableHead>{header("base_daily_wage", "기본 일당", true)}
+                  {header("name", "이름")}<TableHead>휴대폰 번호</TableHead>{header("base_daily_wage", "기본 일당", true)}
                   <TableHead>계좌</TableHead>{header("last_work_date", "최근 근무일")}<TableHead>상태</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.rows.map((w) => (
                   <TableRow key={w.id}>
-                    <TableCell className="font-medium tabular-nums">{w.worker_number}</TableCell>
                     <TableCell><Link className="font-medium text-primary hover:underline" href={`/workers/${w.id}`}>{w.name}</Link></TableCell>
                     <TableCell className="tabular-nums">{formatPhone(w.phone)}</TableCell>
                     <TableCell className="text-right tabular-nums">{w.base_daily_wage.toLocaleString()}</TableCell>
