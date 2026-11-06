@@ -2,17 +2,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Delete, Loader2, LogIn, LogOut, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { formatTime } from "@/lib/format";
+import { formatPhone, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Lookup = { workerNumber: number; maskedName: string; state: "can_clock_in" | "can_clock_out" | "completed_today" | "needs_admin" };
+type Lookup = { maskedName: string; state: "can_clock_in" | "can_clock_out" | "completed_today" | "needs_admin" };
 type Screen =
   | { kind: "input" }
-  | { kind: "confirm"; worker: Lookup }
+  | { kind: "confirm"; phone: string; worker: Lookup }
   | { kind: "result"; ok: true; action: "clock_in" | "clock_out"; name: string; at: string }
   | { kind: "result"; ok: false; message: string };
 
-const MAX_DIGITS = 8;
+const PREFIX = "010";
+const MAX_DIGITS = 8; // 010 뒤의 8자리만 누른다
 const RESULT_MS = 4000;
 const CONFIRM_IDLE_MS = 20000;
 
@@ -78,19 +79,20 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
   }, []);
 
   const submitNumber = useCallback(async () => {
-    if (!digits || busy) return;
+    if (digits.length !== MAX_DIGITS || busy) return;
     setBusy(true);
     try {
-      const worker = await api<Lookup>("/api/kiosk/lookup", { body: { workerNumber: Number(digits) } });
-      setScreen({ kind: "confirm", worker });
+      const phone = PREFIX + digits;
+      const worker = await api<Lookup>("/api/kiosk/lookup", { body: { phone } });
+      setScreen({ kind: "confirm", phone, worker });
     } catch (e) { fail(e); } finally { setBusy(false); }
   }, [digits, busy, fail]);
 
-  const record = useCallback(async (worker: Lookup, action: "clock_in" | "clock_out") => {
+  const record = useCallback(async (phone: string, action: "clock_in" | "clock_out") => {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await api<{ at: string; maskedName: string }>("/api/kiosk/attendance", { body: { workerNumber: worker.workerNumber, action } });
+      const r = await api<{ at: string; maskedName: string }>("/api/kiosk/attendance", { body: { phone, action } });
       setScreen({ kind: "result", ok: true, action, name: r.maskedName, at: r.at });
     } catch (e) { fail(e); } finally { setBusy(false); }
   }, [busy, fail]);
@@ -123,8 +125,9 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
       <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-6 pb-6">
         {screen.kind === "input" && (
           <div className="flex w-full max-w-md flex-col gap-3">
-            <div aria-live="polite" className={cn("flex h-20 shrink-0 items-center justify-center rounded-xl bg-white/10 text-5xl font-bold tracking-[0.2em] tabular-nums", !digits && "text-2xl font-medium tracking-normal text-blue-200")}>
-              {digits || "번호를 입력하세요"}
+            <div className="flex h-20 shrink-0 flex-col items-center justify-center rounded-xl bg-white/10">
+              <div className="text-sm text-blue-200">휴대폰 번호 뒤 8자리를 눌러 주세요</div>
+              <PhoneDisplay digits={digits} />
             </div>
             <div className="grid grid-cols-3 gap-3">
               {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
@@ -134,7 +137,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
               <Key onClick={() => press("0")}>0</Key>
               <Key onClick={() => setDigits("")} muted className="text-2xl">전체삭제</Key>
             </div>
-            <button type="button" disabled={!digits || busy} onClick={submitNumber}
+            <button type="button" disabled={digits.length !== MAX_DIGITS || busy} onClick={submitNumber}
               className="flex h-20 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-500 text-3xl font-bold active:bg-blue-600 disabled:opacity-40">
               {busy && <Loader2 className="size-7 animate-spin" />}확인
             </button>
@@ -144,17 +147,17 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
         {screen.kind === "confirm" && (
           <div className="flex w-full max-w-3xl flex-col items-center gap-7 text-center">
             <div>
-              <div className="text-lg text-blue-200">번호 {screen.worker.workerNumber}</div>
+              <div className="text-lg text-blue-200 tabular-nums">{formatPhone(screen.phone)}</div>
               <div className="mt-1 text-6xl font-bold">{screen.worker.maskedName} 님</div>
               <div className="mt-3 text-xl text-blue-100">본인이 맞으면 아래 버튼을 눌러 주세요.</div>
             </div>
             {STATE_HINT[screen.worker.state] && <div className="rounded-lg bg-amber-400 px-5 py-3 text-xl font-semibold text-slate-900">{STATE_HINT[screen.worker.state]}</div>}
             <div className="grid w-full grid-cols-2 gap-5">
-              <button type="button" disabled={busy || screen.worker.state !== "can_clock_in"} onClick={() => record((screen as { worker: Lookup }).worker, "clock_in")}
+              <button type="button" disabled={busy || screen.worker.state !== "can_clock_in"} onClick={() => record(screen.phone, "clock_in")}
                 className="flex h-44 flex-col items-center justify-center gap-2 rounded-2xl bg-blue-500 text-4xl font-bold active:bg-blue-600 disabled:bg-white/10 disabled:text-white/30">
                 <LogIn className="size-11" />출근하기
               </button>
-              <button type="button" disabled={busy || screen.worker.state !== "can_clock_out"} onClick={() => record((screen as { worker: Lookup }).worker, "clock_out")}
+              <button type="button" disabled={busy || screen.worker.state !== "can_clock_out"} onClick={() => record(screen.phone, "clock_out")}
                 className="flex h-44 flex-col items-center justify-center gap-2 rounded-2xl bg-orange-500 text-4xl font-bold active:bg-orange-600 disabled:bg-white/10 disabled:text-white/30">
                 <LogOut className="size-11" />퇴근하기
               </button>
@@ -181,6 +184,19 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
           </button>
         )}
       </main>
+    </div>
+  );
+}
+
+/** 010과 하이픈은 고정으로 보여 주고 아직 안 누른 자리는 흐리게 표시한다. */
+function PhoneDisplay({ digits }: { digits: string }) {
+  const slot = (i: number) => (
+    <span key={i} className={cn(i >= digits.length && "text-white/30")}>{digits[i] ?? "_"}</span>
+  );
+  const seq = (from: number) => [from, from + 1, from + 2, from + 3].map(slot);
+  return (
+    <div aria-live="polite" aria-label={`${PREFIX} ${digits}`} className="text-4xl font-bold tracking-wide tabular-nums">
+      {PREFIX}-{seq(0)}-{seq(4)}
     </div>
   );
 }

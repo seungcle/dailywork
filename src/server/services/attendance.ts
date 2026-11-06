@@ -8,7 +8,7 @@ import { getMaxShiftHours } from "./settings";
 export type Actor = { kind: "kiosk"; deviceId: string } | { kind: "admin"; adminId: string };
 
 const MESSAGES = {
-  WORKER_NOT_FOUND: "등록되지 않은 번호입니다.",
+  WORKER_NOT_FOUND: "등록되지 않은 휴대폰 번호입니다.",
   WORKER_INACTIVE: "사용이 중지된 번호입니다. 관리자에게 문의해 주세요.",
   ALREADY_CLOCKED_IN: "이미 출근 처리되었습니다. 퇴근을 먼저 해 주세요.",
   OPEN_SHIFT_EXISTS: "이전 근무의 퇴근 기록이 없습니다. 관리자에게 문의해 주세요.",
@@ -129,11 +129,22 @@ export async function clockOut(sql: Sql, input: { workerNumber: number; actor: A
   }));
 }
 
+/** 키오스크 출퇴근. 없는 번호로 시도한 것도 거절 이력에 남긴다. */
+export async function clockByPhone(sql: Sql, input: { phone: string; action: "clock_in" | "clock_out"; actor: Actor; now?: Date }) {
+  const [w] = await sql<{ worker_number: number }[]>`SELECT worker_number FROM workers WHERE phone = ${input.phone}`;
+  if (!w) {
+    await logEvent(sql, { type: input.action, outcome: "rejected", rejectCode: "WORKER_NOT_FOUND", actor: input.actor });
+    throw new AttendanceError("WORKER_NOT_FOUND");
+  }
+  const run = input.action === "clock_in" ? clockIn : clockOut;
+  return run(sql, { workerNumber: w.worker_number, actor: input.actor, now: input.now });
+}
+
 export type KioskState = "can_clock_in" | "can_clock_out" | "completed_today" | "needs_admin";
 
 /** 번호 확인 화면용. 이름은 가려서 내려 주고 민감정보는 포함하지 않는다. */
-export async function lookupForKiosk(sql: Sql, workerNumber: number, now = new Date()) {
-  const [w] = await sql<WorkerRow[]>`SELECT id, worker_number, name, is_active, base_daily_wage FROM workers WHERE worker_number = ${workerNumber}`;
+export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) {
+  const [w] = await sql<WorkerRow[]>`SELECT id, worker_number, name, is_active, base_daily_wage FROM workers WHERE phone = ${phone}`;
   if (!w) throw new AttendanceError("WORKER_NOT_FOUND");
   if (!w.is_active) throw new AttendanceError("WORKER_INACTIVE");
   const open = await findOpen(sql, w.id, now, await getMaxShiftHours(sql));
@@ -144,7 +155,7 @@ export async function lookupForKiosk(sql: Sql, workerNumber: number, now = new D
     const [today] = await sql`SELECT 1 FROM work_records WHERE worker_id = ${w.id} AND work_date = ${workDate} AND clock_in_at IS NOT NULL AND deleted_at IS NULL`;
     if (today) state = "completed_today";
   }
-  return { workerNumber: w.worker_number, maskedName: maskName(w.name), state };
+  return { maskedName: maskName(w.name), state };
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────

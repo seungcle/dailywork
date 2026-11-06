@@ -84,7 +84,7 @@ describe("배포 전 점검", () => {
 
   it("다른 키로 암호화된 데이터를 찾아낸다", async () => {
     const { id } = await seedAdmin();
-    await createWorker(sql, workerInputSchema.parse({ name: "김갑", bankName: "국민", accountNumber: "123456789", accountHolder: "김갑" }), id);
+    await createWorker(sql, workerInputSchema.parse({ name: "김갑", phone: "01012345678", bankName: "국민", accountNumber: "123456789", accountHolder: "김갑" }), id);
     expect(levels(await checkDatabase(sql))).not.toContain("fail");
     const original = process.env.DATA_ENCRYPTION_KEY;
     process.env.DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");

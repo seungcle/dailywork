@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Sql } from "../db";
 import { tx } from "../db";
 import { blindIndex, decryptField, encryptField } from "../crypto";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
 import { env } from "../env";
 import { normalizePhone } from "@/lib/format";
@@ -11,7 +11,8 @@ const money = z.number().int().min(0).max(100_000_000);
 
 export const workerInputSchema = z.object({
   name: z.string().trim().min(1, "이름을 입력해 주세요.").max(50),
-  phone: z.string().nullish().transform((v) => normalizePhone(v)).refine((v) => v === null || /^[0-9]{9,11}$/.test(v), "전화번호 형식이 올바르지 않습니다."),
+  // 키오스크에서 이 번호로 본인을 찾으므로 필수이고 010 휴대폰 번호만 받는다.
+  phone: z.string().nullish().transform((v) => normalizePhone(v) ?? "").refine((v) => /^010[0-9]{8}$/.test(v), "휴대폰 번호는 010으로 시작하는 11자리로 입력해 주세요."),
   baseDailyWage: money.default(0),
   bankName: z.string().trim().max(30).nullish(),
   accountNumber: z.string().nullish().transform((v) => (v ? v.replace(/[^0-9]/g, "") : null)).refine((v) => v === null || /^[0-9]{6,20}$/.test(v), "계좌번호 형식이 올바르지 않습니다."),
@@ -42,7 +43,7 @@ export async function listWorkers(sql: Sql, opts: { q?: string; status?: "active
   const like = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
   const where = sql`
     (${q === ""} OR w.name ILIKE ${like}
-      OR (${digits !== ""} AND (w.worker_number::text LIKE ${digits + "%"} OR w.phone LIKE ${"%" + digits + "%"})))
+      OR (${digits !== ""} AND w.phone LIKE ${"%" + digits + "%"}))
     AND (${status === "all"} OR w.is_active = ${status === "active"})`;
   const rows = await sql<WorkerListRow[]>`
     SELECT w.id, w.worker_number, w.name, w.phone, w.base_daily_wage, w.is_active, w.memo, w.created_at,
@@ -80,6 +81,23 @@ export async function findDuplicates(sql: Sql, input: { name?: string | null; ph
   });
 }
 
+const phoneTaken = () => conflict("PHONE_TAKEN", "이미 다른 근무자가 쓰는 휴대폰 번호입니다.");
+
+/** 번호가 겹치면 키오스크에서 사람을 구분할 수 없으므로 '그래도 등록'도 허용하지 않는다. */
+async function assertPhoneFree(t: Sql, phone: string, excludeId?: string) {
+  const [dup] = await t`SELECT 1 FROM workers WHERE phone = ${phone} AND (${excludeId == null} OR id <> ${excludeId ?? "00000000-0000-0000-0000-000000000000"}::uuid)`;
+  if (dup) throw phoneTaken();
+}
+/** 동시 저장으로 위 확인을 지나쳐 고유 인덱스에 걸린 경우에도 같은 안내를 준다. */
+async function mapPhoneConflict<T>(fn: () => Promise<T>) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (pgCode(e) === "23505" && (e as { constraint_name?: string }).constraint_name === "workers_phone_key") throw phoneTaken();
+    throw e;
+  }
+}
+
 function assertAccountComplete(i: WorkerInput) {
   const filled = [i.bankName, i.accountNumber, i.accountHolder].filter(Boolean).length;
   if (filled > 0 && filled < 3) throw badRequest("은행명, 계좌번호, 예금주를 모두 입력해 주세요.");
@@ -97,9 +115,12 @@ async function replaceAccount(t: Sql, workerId: string, i: WorkerInput) {
 export async function createWorker(sql: Sql, input: WorkerInput, adminId: string, opts: { allowDuplicate?: boolean } = {}) {
   assertAccountComplete(input);
   const rrn = rrnColumns(input);
-  return tx(sql, async (t) => {
+  return mapPhoneConflict(() => tx(sql, async (t) => {
+    await assertPhoneFree(t, input.phone);
     if (!opts.allowDuplicate) {
       const dups = (await findDuplicates(t, input)).filter((d) => d.strong);
+      // 동시 저장으로 방금 같은 번호가 들어온 경우에도 번호 중복으로 안내한다.
+      if (dups.some((d) => d.phone === input.phone)) throw phoneTaken();
       if (dups.length) throw conflict("DUPLICATE_WORKER", "이미 등록된 근무자와 정보가 겹칩니다.", { candidates: dups });
     }
     const [w] = await t<{ id: string; worker_number: number }[]>`
@@ -112,7 +133,7 @@ export async function createWorker(sql: Sql, input: WorkerInput, adminId: string
       after: { worker_number: w.worker_number, name: input.name, base_daily_wage: input.baseDailyWage, has_account: !!input.accountNumber, has_rrn: !!rrn },
     });
     return w;
-  });
+  }));
 }
 
 export async function getWorker(sql: Sql, id: string) {
@@ -133,9 +154,10 @@ export async function getWorker(sql: Sql, id: string) {
  */
 export async function updateWorker(sql: Sql, id: string, input: WorkerInput, adminId: string) {
   const rrn = rrnColumns(input);
-  return tx(sql, async (t) => {
+  return mapPhoneConflict(() => tx(sql, async (t) => {
     const before = await getWorker(t, id);
     await t`SELECT 1 FROM workers WHERE id = ${id} FOR UPDATE`;
+    await assertPhoneFree(t, input.phone, id);
     const accountChanging = !!input.accountNumber;
     if (accountChanging) assertAccountComplete(input);
     else if (input.bankName || input.accountHolder) {
@@ -154,7 +176,7 @@ export async function updateWorker(sql: Sql, id: string, input: WorkerInput, adm
       before: { name: before.name, phone: before.phone, base_daily_wage: before.base_daily_wage, account_last4: before.account_last4 },
       after: { name: input.name, phone: input.phone, base_daily_wage: input.baseDailyWage, account_changed: accountChanging, rrn_changed: !!rrn },
     });
-  });
+  }));
 }
 
 export async function setWorkerActive(sql: Sql, id: string, active: boolean, adminId: string) {

@@ -13,7 +13,7 @@ import { api } from "@/lib/api";
 import { formatPhone, kstDate } from "@/lib/format";
 
 type Preview = { headers: string[]; rows: string[][]; mapping: Record<string, number>; fields: { key: string; label: string; required: boolean }[] };
-type ResultRow = { row: number; status: "new" | "duplicate" | "error"; errors: string[]; reasons: string[]; existingNumber?: number; name: string; phone: string | null; baseDailyWage: number | null; bankName: string | null; accountLast4: string | null };
+type ResultRow = { row: number; status: "new" | "duplicate" | "error"; errors: string[]; reasons: string[]; name: string; phone: string | null; baseDailyWage: number | null; bankName: string | null; accountLast4: string | null };
 type Validation = { results: ResultRow[]; summary: { total: number; new: number; duplicate: number; error: number } };
 type Done = { created: number; updated: number; skipped: number; errors: number };
 
@@ -183,7 +183,7 @@ function ImportPanel() {
                       <TableCell className="tabular-nums">{formatPhone(r.phone)}</TableCell>
                       <TableCell className="text-right tabular-nums">{r.baseDailyWage?.toLocaleString() ?? "-"}</TableCell>
                       <TableCell>{r.accountLast4 ? `${r.bankName ?? ""} ••••${r.accountLast4}` : "-"}</TableCell>
-                      <TableCell className="text-xs whitespace-normal">{r.status === "error" ? <span className="text-destructive">{r.errors.join(" ")}</span> : r.status === "duplicate" ? <>{r.existingNumber ? `기존 ${r.existingNumber}번 · ` : ""}{r.reasons.join(", ")}</> : ""}</TableCell>
+                      <TableCell className="text-xs whitespace-normal">{r.status === "error" ? <span className="text-destructive">{r.errors.join(" ")}</span> : r.status === "duplicate" ? <>{r.reasons.join(", ")}</> : ""}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

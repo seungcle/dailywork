@@ -8,7 +8,7 @@ export async function getDashboard(sql: Sql) {
   const daily = await getDaily(sql, date);
   const maxHours = await getMaxShiftHours(sql);
   const missingOut = await sql`
-    SELECT r.id AS record_id, r.work_date::text AS work_date, r.clock_in_at, w.worker_number, w.name
+    SELECT r.id AS record_id, r.work_date::text AS work_date, r.clock_in_at, w.phone, w.name
     FROM work_records r JOIN workers w ON w.id = r.worker_id
     WHERE r.clock_in_at IS NOT NULL AND r.clock_out_at IS NULL AND r.deleted_at IS NULL
       AND clock_timestamp() - r.clock_in_at > make_interval(hours => ${maxHours})
@@ -19,7 +19,7 @@ export async function getDashboard(sql: Sql) {
     WHERE dw.status = 'pending' AND r.deleted_at IS NULL`;
   const [workers] = await sql<{ active: number }[]>`SELECT count(*)::int AS active FROM workers WHERE is_active`;
   const recent = await sql`
-    SELECT e.id, e.event_type, e.outcome, e.reject_code, e.source, e.occurred_at, e.worker_number, w.name, d.name AS device_name
+    SELECT e.id, e.event_type, e.outcome, e.reject_code, e.source, e.occurred_at, w.phone, w.name, d.name AS device_name
     FROM attendance_events e LEFT JOIN workers w ON w.id = e.worker_id LEFT JOIN kiosk_devices d ON d.id = e.kiosk_device_id
     ORDER BY e.occurred_at DESC LIMIT 12`;
   return { date, summary: daily.summary, missingOut, pending, activeWorkers: workers.active, recent };

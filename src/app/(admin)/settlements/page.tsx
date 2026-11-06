@@ -11,9 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useApiData } from "@/hooks/use-api-data";
 import { api } from "@/lib/api";
-import { addDays, formatClock, formatWon, kstDate } from "@/lib/format";
+import { addDays, formatClock, formatPhone, formatWon, kstDate } from "@/lib/format";
 
-type Row = { worker_id: string; worker_number: number; name: string; work_days: number; total_wage: number; confirmed_wage: number; pending_wage: number; pending_count: number; confirmed_count: number; open_count: number };
+type Row = { worker_id: string; phone: string; name: string; work_days: number; total_wage: number; confirmed_wage: number; pending_wage: number; pending_count: number; confirmed_count: number; open_count: number };
 type Report = { rows: Row[]; summary: { workers: number; workDays: number; totalWage: number; confirmedWage: number; pendingWage: number; pendingCount: number } };
 type Period = "day" | "week" | "month" | "custom";
 type ConfirmResult = { confirmed: number; skippedOpen: number; skippedZero: number };
@@ -91,14 +91,14 @@ export default function SettlementsPage() {
           <Panel className="mt-4" title="근무자별 집계">
             {data.rows.length === 0 ? <EmptyState>이 기간의 근무 기록이 없습니다.</EmptyState> : (
               <Table>
-                <TableHeader><TableRow><TableHead className="w-8" /><TableHead>번호</TableHead><TableHead>이름</TableHead><TableHead className="text-right">근무일</TableHead><TableHead className="text-right">일당 합계</TableHead><TableHead className="text-right">확정</TableHead><TableHead className="text-right">미확정</TableHead><TableHead>상태</TableHead><TableHead /></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead className="w-8" /><TableHead>이름</TableHead><TableHead>휴대폰 번호</TableHead><TableHead className="text-right">근무일</TableHead><TableHead className="text-right">일당 합계</TableHead><TableHead className="text-right">확정</TableHead><TableHead className="text-right">미확정</TableHead><TableHead>상태</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
                   {data.rows.map((r) => (
                     <Fragment key={r.worker_id}>
                       <TableRow>
                         <TableCell><Button variant="ghost" size="icon-xs" aria-expanded={open === r.worker_id} aria-label={`${r.name} 상세`} onClick={() => setOpen(open === r.worker_id ? null : r.worker_id)}>{open === r.worker_id ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}</Button></TableCell>
-                        <TableCell className="tabular-nums">{r.worker_number}</TableCell>
                         <TableCell><Link href={`/workers/${r.worker_id}`} className="font-medium text-primary hover:underline">{r.name}</Link></TableCell>
+                        <TableCell className="tabular-nums">{formatPhone(r.phone)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.work_days}</TableCell>
                         <TableCell className="text-right font-semibold tabular-nums">{r.total_wage.toLocaleString()}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.confirmed_wage.toLocaleString()}</TableCell>

@@ -13,18 +13,19 @@ import { registerDevice, reissueCode, revokeDevice, KIOSK_COOKIE, listDevices } 
 import { ADMIN_COOKIE, changePassword, createAdministrator, login, validateAdminSession } from "@/server/adminAuth";
 import { adminCookie, kioskCookie, noParams, request, resetDb, seedAdmin, seedKiosk, seedWorker, sql, TEST_PASSWORD } from "./helpers";
 
-let adminId: string, adminToken: string, num: number;
+const PHONE = "01055550000";
+let adminId: string, adminToken: string;
 beforeEach(async () => {
   await resetDb();
   const a = await seedAdmin();
   adminId = a.id; adminToken = a.token;
-  num = (await seedWorker(adminId)).worker_number;
+  await seedWorker(adminId, { phone: PHONE });
 });
 
 const kioskCalls = (cookies?: Record<string, string>) => [
   () => session(request("/api/kiosk/session", { cookies }), noParams),
-  () => lookup(request("/api/kiosk/lookup", { method: "POST", body: { workerNumber: num }, cookies }), noParams),
-  () => attendance(request("/api/kiosk/attendance", { method: "POST", body: { workerNumber: num, action: "clock_in" }, cookies }), noParams),
+  () => lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies }), noParams),
+  () => attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies }), noParams),
 ];
 
 async function expectAllBlocked(cookies?: Record<string, string>) {
@@ -43,7 +44,7 @@ describe("비등록 키오스크 차단", () => {
 
   it("등록된 기기는 출퇴근할 수 있다", async () => {
     const k = await seedKiosk(adminId);
-    const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { workerNumber: num, action: "clock_in" }, cookies: kioskCookie(k.token) }), noParams);
+    const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies: kioskCookie(k.token) }), noParams);
     expect(res.status).toBe(200);
     expect(await sql`SELECT clock_in_device_id FROM work_records WHERE clock_in_device_id = ${k.id}`).toHaveLength(1);
   });
@@ -64,24 +65,54 @@ describe("비등록 키오스크 차단", () => {
   it("클라이언트가 시각을 보내도 무시하고 서버 시각을 쓴다", async () => {
     const k = await seedKiosk(adminId);
     const before = Date.now();
-    await attendance(request("/api/kiosk/attendance", { method: "POST", body: { workerNumber: num, action: "clock_in", at: "2020-01-01T00:00:00Z", now: "2020-01-01T00:00:00Z" }, cookies: kioskCookie(k.token) }), noParams);
+    await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in", at: "2020-01-01T00:00:00Z", now: "2020-01-01T00:00:00Z" }, cookies: kioskCookie(k.token) }), noParams);
     const [r] = await sql<{ clock_in_at: Date }[]>`SELECT clock_in_at FROM work_records`;
     expect(r.clock_in_at.getTime()).toBeGreaterThanOrEqual(before - 1000);
   });
 
   it("다른 사이트에서 온 요청을 막는다", async () => {
     const k = await seedKiosk(adminId);
-    const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { workerNumber: num, action: "clock_in" }, cookies: kioskCookie(k.token), headers: { origin: "https://evil.example" } }), noParams);
+    const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies: kioskCookie(k.token), headers: { origin: "https://evil.example" } }), noParams);
     expect(res.status).toBe(403);
   });
 
   it("응답에 전체 이름·전화번호·계좌 정보를 포함하지 않는다", async () => {
     const k = await seedKiosk(adminId);
-    await sql`UPDATE workers SET name = '홍길동' WHERE worker_number = ${num}`;
-    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { workerNumber: num }, cookies: kioskCookie(k.token) }), noParams);
+    await sql`UPDATE workers SET name = '홍길동' WHERE phone = ${PHONE}`;
+    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies: kioskCookie(k.token) }), noParams);
     const text = await res.text();
     expect(text).not.toContain("홍길동");
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "state", "workerNumber"]);
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "state"]);
+  });
+
+  it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
+    const k = await seedKiosk(adminId);
+    const cookies = kioskCookie(k.token);
+    const found = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies }), noParams);
+    expect(found.status).toBe(200);
+    const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies }), noParams);
+    expect(res.status).toBe(200);
+    expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "maskedName"]);
+    expect(await sql`SELECT 1 FROM work_records`).toHaveLength(1);
+  });
+
+  it("등록되지 않은 번호는 거절하고 거절 이력을 남긴다", async () => {
+    const k = await seedKiosk(adminId);
+    const cookies = kioskCookie(k.token);
+    const body = { phone: "01099998888" };
+    expect((await lookup(request("/api/kiosk/lookup", { method: "POST", body, cookies }), noParams)).status).toBe(404);
+    expect((await attendance(request("/api/kiosk/attendance", { method: "POST", body: { ...body, action: "clock_in" }, cookies }), noParams)).status).toBe(404);
+    const [e] = await sql<{ reject_code: string; worker_id: string | null }[]>`SELECT reject_code, worker_id FROM attendance_events`;
+    expect(e).toEqual({ reject_code: "WORKER_NOT_FOUND", worker_id: null });
+    expect(JSON.stringify(e)).not.toContain(body.phone);
+  });
+
+  it("8자리를 다 채우지 않은 번호는 조회하지 않는다", async () => {
+    const k = await seedKiosk(adminId);
+    for (const phone of ["0105555", "5555000", "02012345678", "010-5555-0000"]) {
+      const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone }, cookies: kioskCookie(k.token) }), noParams);
+      expect(res.status).toBe(400);
+    }
   });
 });
 

@@ -31,7 +31,7 @@ export async function updateWage(sql: Sql, input: {
 }
 
 export type SettlementRow = {
-  worker_id: string; worker_number: number; name: string; work_days: number; total_wage: number;
+  worker_id: string; phone: string; name: string; work_days: number; total_wage: number;
   confirmed_wage: number; pending_wage: number; pending_count: number; confirmed_count: number; open_count: number;
 };
 
@@ -39,7 +39,7 @@ export type SettlementRow = {
 export async function settlementReport(sql: Sql, from: string, to: string) {
   if (from > to) throw badRequest("시작일이 종료일보다 늦습니다.");
   const rows = await sql<SettlementRow[]>`
-    SELECT w.id AS worker_id, w.worker_number, w.name,
+    SELECT w.id AS worker_id, w.phone, w.name,
       count(*)::int AS work_days,
       sum(dw.final_wage)::float8 AS total_wage,
       (COALESCE(sum(dw.final_wage) FILTER (WHERE dw.status = 'confirmed'), 0))::float8 AS confirmed_wage,
@@ -49,7 +49,7 @@ export async function settlementReport(sql: Sql, from: string, to: string) {
       (count(*) FILTER (WHERE r.clock_in_at IS NOT NULL AND r.clock_out_at IS NULL))::int AS open_count
     FROM work_records r JOIN workers w ON w.id = r.worker_id JOIN daily_wages dw ON dw.work_record_id = r.id
     WHERE r.work_date BETWEEN ${from} AND ${to} AND r.deleted_at IS NULL
-    GROUP BY w.id, w.worker_number, w.name ORDER BY w.worker_number`;
+    GROUP BY w.id, w.phone, w.name, w.worker_number ORDER BY w.worker_number`;
   const sum = (k: keyof SettlementRow) => rows.reduce((s, r) => s + Number(r[k]), 0);
   return {
     from, to, rows,

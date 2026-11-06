@@ -9,15 +9,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
-import { formatPhone, parseMoney } from "@/lib/format";
+import { formatPhone, formatPhoneInput, parseMoney } from "@/lib/format";
 
 export type WorkerFormValue = { name: string; phone: string; baseDailyWage: string; bankName: string; accountNumber: string; accountHolder: string; rrn: string; memo: string };
 const EMPTY: WorkerFormValue = { name: "", phone: "", baseDailyWage: "", bankName: "", accountNumber: "", accountHolder: "", rrn: "", memo: "" };
-type Candidate = { id: string; worker_number: number; name: string; phone: string | null; is_active: boolean; reasons: string[]; strong: boolean };
+type Candidate = { id: string; name: string; phone: string | null; is_active: boolean; reasons: string[]; strong: boolean };
 
 type Props = {
   onOpenChange: (o: boolean) => void; workerId?: string; initial?: Partial<WorkerFormValue>; hasAccount?: boolean;
-  rrnEnabled: boolean; hasRrn?: boolean; onSaved: (r: { id: string; worker_number?: number }) => void;
+  rrnEnabled: boolean; hasRrn?: boolean; onSaved: (r: { id: string }) => void;
 };
 
 /** 열릴 때마다 입력값을 새로 시작하도록 닫혀 있으면 렌더링하지 않는다. */
@@ -26,7 +26,7 @@ export function WorkerFormDialog({ open, ...props }: Props & { open: boolean }) 
 }
 
 function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, hasRrn, onSaved }: Props) {
-  const [v, setV] = useState<WorkerFormValue>({ ...EMPTY, ...initial });
+  const [v, setV] = useState<WorkerFormValue>({ ...EMPTY, ...initial, phone: formatPhoneInput(initial?.phone ?? "") });
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [blocked, setBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,8 +57,8 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, h
         toast.success("근무자 정보를 수정했습니다.");
         onSaved({ id: workerId });
       } else {
-        const r = await api<{ id: string; worker_number: number }>("/api/admin/workers", { body: { worker, allowDuplicate } });
-        toast.success(`등록했습니다. 고유번호는 ${r.worker_number}번입니다.`);
+        const r = await api<{ id: string }>("/api/admin/workers", { body: { worker, allowDuplicate } });
+        toast.success("등록했습니다. 이 휴대폰 번호로 바로 출퇴근할 수 있습니다.");
         onSaved(r);
       }
       onOpenChange(false);
@@ -75,11 +75,11 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, h
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{editing ? "근무자 정보 수정" : "신규 근무자 등록"}</DialogTitle>
-          <DialogDescription>{editing ? "고유번호는 바뀌지 않습니다." : "저장하면 고유번호가 자동으로 발급됩니다."}</DialogDescription>
+          <DialogDescription>근무자는 키오스크에서 휴대폰 번호로 출퇴근합니다.</DialogDescription>
         </DialogHeader>
         <form id="worker-form" className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); void submit(false); }}>
           <F id="w-name" label="이름 *"><Input id="w-name" required value={v.name} onChange={set("name")} onBlur={check} /></F>
-          <F id="w-phone" label="전화번호"><Input id="w-phone" inputMode="tel" placeholder="010-0000-0000" value={v.phone} onChange={set("phone")} onBlur={check} /></F>
+          <F id="w-phone" label="휴대폰 번호 *"><Input id="w-phone" required inputMode="tel" placeholder="010-0000-0000" value={v.phone} onChange={(e) => { setBlocked(false); setV((x) => ({ ...x, phone: formatPhoneInput(e.target.value) })); }} onBlur={check} /></F>
           <F id="w-wage" label="기본 일당 (원)"><Input id="w-wage" inputMode="numeric" placeholder="150000" value={v.baseDailyWage} onChange={set("baseDailyWage")} /></F>
           <F id="w-bank" label="은행명"><Input id="w-bank" value={v.bankName} onChange={set("bankName")} /></F>
           <F id="w-account" label="계좌번호" hint={editing && hasAccount ? "변경할 때만 입력하세요." : undefined}>
@@ -100,7 +100,7 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, h
             <ul className="space-y-1.5">
               {candidates.map((c) => (
                 <li key={c.id} className="flex items-center justify-between gap-2">
-                  <span><b>{c.name}</b> ({c.worker_number}) {formatPhone(c.phone)} · <span className="text-xs text-muted-foreground">{c.reasons.join(", ")}{c.is_active ? "" : " · 비활성"}</span></span>
+                  <span><b>{c.name}</b> {formatPhone(c.phone)} · <span className="text-xs text-muted-foreground">{c.reasons.join(", ")}{c.is_active ? "" : " · 비활성"}</span></span>
                   <Button asChild size="xs" variant="outline"><Link href={`/workers/${c.id}`}>기존 정보 보기</Link></Button>
                 </li>
               ))}
