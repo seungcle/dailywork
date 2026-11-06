@@ -90,7 +90,7 @@ function PasswordPanel() {
         } catch (err) { toast.error((err as Error).message); } finally { setBusy(false); }
       }}>
         <div className="space-y-1.5"><Label htmlFor="pw-cur">현재 비밀번호</Label><Input id="pw-cur" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></div>
-        <div className="space-y-1.5"><Label htmlFor="pw-new">새 비밀번호 (10자 이상)</Label><Input id="pw-new" type="password" autoComplete="new-password" required minLength={10} value={next} onChange={(e) => setNext(e.target.value)} /></div>
+        <div className="space-y-1.5"><Label htmlFor="pw-new">새 비밀번호 (4자 이상)</Label><Input id="pw-new" type="password" autoComplete="new-password" required minLength={4} value={next} onChange={(e) => setNext(e.target.value)} /></div>
         <div className="space-y-1.5"><Label htmlFor="pw-conf">새 비밀번호 확인</Label><Input id="pw-conf" type="password" autoComplete="new-password" required aria-invalid={mismatch} value={confirm} onChange={(e) => setConfirm(e.target.value)} />{mismatch && <p className="text-xs text-destructive">새 비밀번호가 일치하지 않습니다.</p>}</div>
         <Button type="submit" disabled={busy || mismatch || !next}>{busy && <Loader2 className="size-4 animate-spin" />}변경</Button>
       </form>

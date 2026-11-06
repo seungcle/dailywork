@@ -1,0 +1,4 @@
+# CLI 배포 때 비밀값이 올라가지 않게 한다.
+.env*
+!.env.example
+!.env.deploy.example
