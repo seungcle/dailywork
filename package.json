@@ -13,7 +13,10 @@
     "db:up": "docker compose up -d --wait",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:seed:dev": "tsx --env-file-if-exists=.env.local scripts/seed-dev.ts",
-    "admin:create": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts"
+    "admin:create": "tsx --env-file-if-exists=.env.local scripts/create-admin.ts",
+    "db:migrate:prod": "tsx --env-file=.env.deploy scripts/migrate.ts",
+    "admin:create:prod": "tsx --env-file=.env.deploy scripts/create-admin.ts",
+    "deploy:check": "tsx --env-file=.env.deploy scripts/deploy-check.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
