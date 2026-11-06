@@ -35,27 +35,29 @@ npm test
 
 테스트는 Docker의 실제 PostgreSQL(`dailywork_test`)에서 돌아가며 실행할 때마다 이 DB를 초기화합니다.
 
+## 관리자 계정 발급
+
+일반 회원가입은 없습니다. 아래 명령을 실행하면 아이디와 비밀번호를 차례로 묻습니다. 비밀번호는 화면에 표시되지 않습니다.
+
+```bash
+npm run admin:create
+```
+
 ## 배포 (Supabase + Vercel)
 
-1. **Supabase 프로젝트 생성**: 리전은 서울(`ap-northeast-2`)을 권장합니다.
-2. **스키마 적용**: Session pooler(포트 5432) 또는 Direct 연결 문자열로 실행합니다.
-   ```bash
-   MIGRATION_DATABASE_URL="<연결 문자열>" npm run db:migrate
-   ```
-3. **Vercel 환경변수 설정**
-   | 이름 | 값 |
-   | --- | --- |
-   | `DATABASE_URL` | Supabase **Transaction pooler**(포트 6543) 연결 문자열 |
-   | `DATA_ENCRYPTION_KEY` | `openssl rand -base64 32`로 만든 운영 전용 키 |
-   | `RRN_COLLECTION_ENABLED` | `false` (법적 근거 확인 전까지 유지) |
-4. **Vercel 배포**: `vercel.json`에 서울 리전(`icn1`)이 지정되어 있습니다.
-5. **첫 관리자 계정 발급**: 일반 회원가입은 없습니다. 비밀번호는 입력 프롬프트로 받습니다.
-   ```bash
-   DATABASE_URL="<연결 문자열>" DATA_ENCRYPTION_KEY="<운영 키>" npm run admin:create -- <아이디> "<표시 이름>"
-   ```
-6. **태블릿 연결**: 관리자 화면 > 키오스크 관리에서 코드를 발급하고, 태블릿의 `/kiosk/setup`에 입력합니다.
+설계와 전체 절차는 [docs/deploy.md](docs/deploy.md)에 있습니다. `.env.deploy`를 채운 뒤 아래 순서로 실행합니다.
 
-> `DATA_ENCRYPTION_KEY`를 잃어버리면 저장된 계좌번호와 주민등록번호를 복구할 수 없습니다. 비밀번호 관리 도구 등에 따로 보관하세요.
+```bash
+npm run db:migrate:prod
+```
+
+```bash
+npm run admin:create:prod
+```
+
+```bash
+npm run deploy:check
+```
 
 ## 업무 규칙
 
