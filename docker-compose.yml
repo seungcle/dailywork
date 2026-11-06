@@ -1,0 +1,21 @@
+# 로컬 개발·테스트용 PostgreSQL. 운영은 Supabase를 사용한다.
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: dailywork-db
+    environment:
+      POSTGRES_USER: dailywork
+      POSTGRES_PASSWORD: dailywork_local_only
+      POSTGRES_DB: dailywork
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - dailywork-db:/var/lib/postgresql/data
+      - ./db/docker-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dailywork"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  dailywork-db:
