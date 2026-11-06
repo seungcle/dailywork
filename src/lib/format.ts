@@ -73,3 +73,16 @@ export function parseMoney(input: unknown): number | null {
   if (s === "") return 0;
   return /^\d+$/.test(s) ? Number(s) : null;
 }
+
+const PAIRING_HASH_KEY = "code";
+/** 연결 QR에 담는 주소. 코드는 # 뒤에 넣어 서버 로그와 Referer에 남지 않게 한다. */
+export function pairingLink(origin: string, code: string) {
+  return `${origin}/kiosk/setup#${PAIRING_HASH_KEY}=${encodeURIComponent(code)}`;
+}
+/** 주소의 # 부분에서 연결 코드를 꺼낸다. 형식이 맞지 않으면 null. */
+export function parsePairingHash(hash: string) {
+  const value = new URLSearchParams(hash.replace(/^#/, "")).get(PAIRING_HASH_KEY);
+  if (!value) return null;
+  const code = value.toUpperCase().replace(/[^0-9A-Z]/g, "");
+  return /^[2-9A-HJ-NP-Z]{8}$/.test(code) ? `${code.slice(0, 4)}-${code.slice(4)}` : null;
+}
