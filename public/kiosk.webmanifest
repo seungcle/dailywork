@@ -1,0 +1,11 @@
+{
+  "name": "DailyWork 출퇴근",
+  "short_name": "출퇴근",
+  "start_url": "/kiosk",
+  "scope": "/kiosk",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0f1f3d",
+  "theme_color": "#0f1f3d",
+  "lang": "ko"
+}
