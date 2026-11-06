@@ -35,16 +35,14 @@ function terminalPrompter() {
   });
   const rl = createInterface({ input: process.stdin, output, terminal: true });
   rl.on("SIGINT", () => { process.stdout.write("\n"); process.exit(130); });
-  const question = () => new Promise<string>((resolve) => rl.question("", resolve));
+  // 안내 문구는 question으로 넘겨야 한다. 먼저 출력해 두면 readline이 줄을 다시 그리면서 지운다.
+  const question = (label: string) => new Promise<string>((resolve) => rl.question(label, resolve));
   return {
-    ask: async (label: string) => {
-      process.stdout.write(label);
-      return (await question()).trim();
-    },
+    ask: async (label: string) => (await question(label)).trim(),
     askSecret: async (label: string) => {
-      process.stdout.write(label);
-      muted = true;
-      const answer = await question();
+      const pending = question(label);
+      muted = true; // 안내 문구를 그린 뒤부터 입력 내용을 가린다.
+      const answer = await pending;
       muted = false;
       process.stdout.write("\n");
       return answer;

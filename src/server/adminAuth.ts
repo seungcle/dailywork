@@ -8,7 +8,7 @@ export const ADMIN_COOKIE = "dw_admin";
 const SESSION_HOURS = 12;
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
-export const MIN_PASSWORD_LENGTH = 10;
+export const MIN_PASSWORD_LENGTH = 4;
 
 export type AdminUser = { id: string; username: string; displayName: string; sessionId: string };
 

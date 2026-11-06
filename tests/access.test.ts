@@ -10,7 +10,7 @@ import { GET as adminWorkers } from "@/app/api/admin/workers/route";
 import { POST as adminAttendance } from "@/app/api/admin/attendance/route";
 import { GET as dashboard } from "@/app/api/admin/dashboard/route";
 import { registerDevice, reissueCode, revokeDevice, KIOSK_COOKIE, listDevices } from "@/server/services/kioskDevices";
-import { ADMIN_COOKIE, changePassword, login, validateAdminSession } from "@/server/adminAuth";
+import { ADMIN_COOKIE, changePassword, createAdministrator, login, validateAdminSession } from "@/server/adminAuth";
 import { adminCookie, kioskCookie, noParams, request, resetDb, seedAdmin, seedKiosk, seedWorker, sql, TEST_PASSWORD } from "./helpers";
 
 let adminId: string, adminToken: string, num: number;
@@ -217,5 +217,13 @@ describe("라우트 구조", () => {
       SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity`;
     expect(rows.map((r) => r.relname)).toEqual([]);
+  });
+});
+
+describe("관리자 비밀번호 길이", () => {
+  it("4자는 허용하고 3자는 거절한다", async () => {
+    await expect(createAdministrator(sql, { username: "len4", displayName: "t", password: "abcd" })).resolves.toBeTruthy();
+    await expect(login(sql, "len4", "abcd")).resolves.toBeTruthy();
+    await expect(createAdministrator(sql, { username: "len3", displayName: "t", password: "abc" })).rejects.toThrow("4자 이상");
   });
 });
