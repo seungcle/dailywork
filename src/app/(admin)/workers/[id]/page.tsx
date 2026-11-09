@@ -1,7 +1,8 @@
 "use client";
 import { use, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Eye, EyeOff, Pencil, UserCheck, UserX } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Eye, EyeOff, Pencil, Trash2, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { AttendanceBadge, ConfirmDialog, EmptyState, ErrorState, LoadingState, PageHeader, Panel, StatCard, WageBadge } from "@/components/admin/common";
 import { WorkerFormDialog } from "@/components/admin/worker-form";
@@ -10,13 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useApiData } from "@/hooks/use-api-data";
 import { api } from "@/lib/api";
-import { formatClock, formatDateTime, formatPhone, formatWon } from "@/lib/format";
+import { formatClock, formatDateTime, formatPhone, formatRrn, formatWon } from "@/lib/format";
 
 type Detail = {
-  worker: { id: string; worker_number: number; name: string; phone: string | null; base_daily_wage: number; is_active: boolean; memo: string; created_at: string; last_work_date: string | null; bank_name: string | null; account_last4: string | null; account_holder: string | null; has_rrn: boolean };
+  worker: { id: string; worker_number: number; name: string; phone: string | null; base_daily_wage: number; is_active: boolean; address: string; memo: string; created_at: string; last_work_date: string | null; bank_name: string | null; account_last4: string | null; account_holder: string | null; rrn: string | null };
   rows: { record_id: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null; source: string; actual_wage: number; extra_pay: number; final_wage: number; status: string }[];
   totals: { work_days: number; total_wage: number; confirmed_wage: number };
-  rrnEnabled: boolean;
 };
 
 export default function WorkerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,19 +24,19 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
   const { data, error, loading, reload } = useApiData<Detail>(`/api/admin/workers/${id}`);
   const [editOpen, setEditOpen] = useState(false);
   const [toggleOpen, setToggleOpen] = useState(false);
-  const [revealed, setRevealed] = useState<{ account?: string; rrn?: string }>({});
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [account, setAccount] = useState<string | null>(null);
+  const router = useRouter();
 
   if (loading && !data) return <LoadingState />;
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return null;
   const w = data.worker;
 
-  const toggleReveal = async (field: "account" | "rrn") => {
-    if (revealed[field]) return setRevealed((r) => ({ ...r, [field]: undefined }));
-    try {
-      const r = await api<{ value: string }>(`/api/admin/workers/${id}/reveal`, { body: { field } });
-      setRevealed((x) => ({ ...x, [field]: r.value }));
-    } catch (e) { toast.error((e as Error).message); }
+  const toggleAccount = async () => {
+    if (account) return setAccount(null);
+    try { setAccount((await api<{ value: string }>(`/api/admin/workers/${id}/reveal`, { body: { field: "account" } })).value); }
+    catch (e) { toast.error((e as Error).message); }
   };
 
   return (
@@ -44,6 +44,7 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
       <Link href="/workers" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />근무자 목록</Link>
       <PageHeader title={w.name} description={`등록일 ${formatDateTime(w.created_at)}`}>
         <Button variant="outline" onClick={() => setToggleOpen(true)}>{w.is_active ? <><UserX className="size-4" />비활성화</> : <><UserCheck className="size-4" />다시 활성화</>}</Button>
+        <Button variant="outline" className="text-destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" />삭제</Button>
         <Button onClick={() => setEditOpen(true)}><Pencil className="size-4" />정보 수정</Button>
       </PageHeader>
       {!w.is_active && <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">비활성 근무자입니다. 키오스크 출퇴근이 제한됩니다.</div>}
@@ -60,21 +61,13 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
           <Item label="계좌">
             {w.account_last4 ? (
               <span className="inline-flex items-center gap-2">
-                {w.bank_name} {revealed.account ?? `••••${w.account_last4}`} ({w.account_holder})
-                <Button variant="ghost" size="icon-xs" aria-label={revealed.account ? "계좌번호 가리기" : "계좌번호 보기"} title="조회 이력이 남습니다" onClick={() => toggleReveal("account")}>{revealed.account ? <EyeOff className="size-3" /> : <Eye className="size-3" />}</Button>
+                {w.bank_name} {account ?? `••••${w.account_last4}`} ({w.account_holder})
+                <Button variant="ghost" size="icon-xs" aria-label={account ? "계좌번호 가리기" : "계좌번호 보기"} title="조회 이력이 남습니다" onClick={toggleAccount}>{account ? <EyeOff className="size-3" /> : <Eye className="size-3" />}</Button>
               </span>
             ) : <span className="text-amber-700">미등록</span>}
           </Item>
-          {data.rrnEnabled && (
-            <Item label="주민등록번호">
-              {w.has_rrn ? (
-                <span className="inline-flex items-center gap-2">
-                  {revealed.rrn ?? "••••••-•••••••"}
-                  <Button variant="ghost" size="icon-xs" aria-label={revealed.rrn ? "주민등록번호 가리기" : "주민등록번호 보기"} title="조회 이력이 남습니다" onClick={() => toggleReveal("rrn")}>{revealed.rrn ? <EyeOff className="size-3" /> : <Eye className="size-3" />}</Button>
-                </span>
-              ) : "미등록"}
-            </Item>
-          )}
+          <Item label="주민등록번호"><span className="tabular-nums">{w.rrn ? formatRrn(w.rrn) : <span className="text-amber-700">미등록</span>}</span></Item>
+          <Item label="주소" wide>{w.address || "-"}</Item>
           <Item label="메모" wide>{w.memo || "-"}</Item>
         </dl>
       </Panel>
@@ -97,9 +90,18 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
           </Table>
         )}
       </Panel>
-      <WorkerFormDialog open={editOpen} onOpenChange={setEditOpen} workerId={w.id} hasAccount={!!w.account_last4} rrnEnabled={data.rrnEnabled} hasRrn={w.has_rrn}
-        initial={{ name: w.name, phone: w.phone ?? "", baseDailyWage: String(w.base_daily_wage), bankName: w.bank_name ?? "", accountHolder: w.account_holder ?? "", memo: w.memo }}
-        onSaved={() => { setRevealed({}); void reload(); }} />
+      <WorkerFormDialog open={editOpen} onOpenChange={setEditOpen} workerId={w.id} hasAccount={!!w.account_last4}
+        initial={{ name: w.name, phone: w.phone ?? "", baseDailyWage: String(w.base_daily_wage), bankName: w.bank_name ?? "", accountHolder: w.account_holder ?? "", rrn: w.rrn ? formatRrn(w.rrn) : "", address: w.address, memo: w.memo }}
+        onSaved={() => { setAccount(null); void reload(); }} />
+      <ConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} destructive title="근무자 삭제" confirmLabel="삭제"
+        description={`${w.name} 님의 정보와 계좌를 지웁니다. 되돌릴 수 없습니다. 출근 기록이 있는 근무자는 삭제되지 않으니 비활성화를 사용하세요.`}
+        onConfirm={async () => {
+          try {
+            await api(`/api/admin/workers/${w.id}`, { method: "DELETE" });
+            toast.success("삭제했습니다.");
+            router.replace("/workers");
+          } catch (e) { toast.error((e as Error).message); throw e; }
+        }} />
       <ConfirmDialog open={toggleOpen} onOpenChange={setToggleOpen} destructive={w.is_active} title={w.is_active ? "근무자 비활성화" : "근무자 다시 활성화"} confirmLabel={w.is_active ? "비활성화" : "활성화"}
         description={w.is_active ? `${w.name} 님은 키오스크로 출퇴근할 수 없게 됩니다. 과거 기록은 그대로 유지됩니다.` : `${w.name} 님이 같은 번호로 다시 출퇴근할 수 있습니다.`}
         onConfirm={async () => {

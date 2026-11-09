@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import ExcelJS from "exceljs";
 import { addManualRecords, clockIn, clockOut, getDaily } from "@/server/services/attendance";
 import { confirmWages, settlementReport, unconfirmWages, updateWage } from "@/server/services/settlement";
-import { buildExport } from "@/server/services/excel";
 import { kst, resetDb, seedAdmin, seedWorker, sql } from "./helpers";
 
 let adminId: string;
@@ -99,26 +97,5 @@ describe("정산 확정", () => {
     await updateWage(sql, { recordId: id, actualWage: 1000, adminId });
     const [log] = await sql<{ reason: string }[]>`SELECT reason FROM audit_logs WHERE action = 'wage.unconfirm'`;
     expect(log.reason).toBe("금액 조정");
-  });
-
-  it("지급 자료에는 확정 금액만 들어가고 계좌번호가 복호화되어 나온다", async () => {
-    const a = await seedWorker(adminId, { baseDailyWage: 100000, bankName: "국민은행", accountNumber: "012-345-678901", accountHolder: "김갑" });
-    const b = await seedWorker(adminId, { baseDailyWage: 70000 });
-    await worked(a.id, "2026-03-02");
-    await worked(a.id, "2026-03-03");
-    await worked(b.id, "2026-03-02");
-    await confirmWages(sql, { from: "2026-03-02", to: "2026-03-02", workerIds: [a.id], adminId });
-
-    const { buffer } = await buildExport(sql, { type: "payment", from: "2026-03-01", to: "2026-03-31", adminId });
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer as never);
-    const ws = wb.worksheets[0];
-    expect(ws.rowCount).toBe(3); // 머리글 + a + 합계
-    const row = ws.getRow(2);
-    expect(row.getCell(4).value).toBe("012345678901"); // 앞자리 0 유지
-    expect(row.getCell(7).value).toBe(100000);
-    expect(ws.getRow(3).getCell(7).value).toBe(100000);
-    const [log] = await sql`SELECT 1 FROM audit_logs WHERE action = 'excel.export.payment'`;
-    expect(log).toBeTruthy();
   });
 });

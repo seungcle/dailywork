@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, CopyPlus, Download, History, Loader2, Pencil, Search, Trash2, UserPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, CopyPlus, History, Loader2, Pencil, Search, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { AttendanceBadge, ConfirmDialog, EmptyState, ErrorState, LoadingState, PageHeader, Panel, StatCard, WageBadge } from "@/components/admin/common";
 import { WorkerPicker, type PickedWorker } from "@/components/admin/worker-picker";
@@ -46,7 +46,6 @@ export function AttendanceBoard({ date }: { date: string }) {
     <>
       <PageHeader title="일일 출석부" description="키오스크와 수동 등록 기록을 한곳에서 확인합니다. 15초마다 자동 갱신됩니다.">
         <Button variant="outline" onClick={() => setCopyOpen(true)}><CopyPlus className="size-4" />전날 인원 불러오기</Button>
-        <Button variant="outline" asChild><a href={`/api/admin/excel/export?type=attendance&date=${date}`}><Download className="size-4" />Excel</a></Button>
         <Button onClick={() => setAddOpen(true)}><UserPlus className="size-4" />근무자 추가</Button>
       </PageHeader>
 

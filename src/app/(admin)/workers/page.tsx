@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Download, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
 import { EmptyState, ErrorState, LoadingState, PageHeader, Panel } from "@/components/admin/common";
 import { WorkerFormDialog } from "@/components/admin/worker-form";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,6 @@ export default function WorkersPage() {
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
-  const { data: settings } = useApiData<{ rrnEnabled: boolean }>("/api/admin/settings");
   const url = `/api/admin/workers?q=${encodeURIComponent(dq)}&status=${status}&sort=${sort}&dir=${dir}&page=${page}`;
   const { data, error, loading, reload } = useApiData<List>(url);
 
@@ -44,7 +43,6 @@ export default function WorkersPage() {
   return (
     <>
       <PageHeader title="근무자 관리" description="등록 전에 먼저 검색하세요. 기존 근무자는 다시 등록하지 않아도 됩니다.">
-        <Button variant="outline" asChild><a href="/api/admin/excel/export?type=workers"><Download className="size-4" />명부 Excel</a></Button>
         <Button onClick={() => setCreateOpen(true)}><Plus className="size-4" />신규 등록</Button>
       </PageHeader>
       <div className="mb-3 flex flex-wrap gap-2">
@@ -93,7 +91,7 @@ export default function WorkersPage() {
           </>
         ))}
       </Panel>
-      <WorkerFormDialog open={createOpen} onOpenChange={setCreateOpen} rrnEnabled={!!settings?.rrnEnabled} initial={{ name: dq && !/\d/.test(dq) ? dq : "" }} onSaved={(r) => router.push(`/workers/${r.id}`)} />
+      <WorkerFormDialog open={createOpen} onOpenChange={setCreateOpen} initial={{ name: dq && !/\d/.test(dq) ? dq : "" }} onSaved={(r) => router.push(`/workers/${r.id}`)} />
     </>
   );
 }

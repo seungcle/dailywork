@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createWorker, findDuplicates, getWorker, listWorkers, revealSensitive, updateWorker, workerHistory, workerInputSchema } from "@/server/services/workers";
-import { addManualRecords } from "@/server/services/attendance";
-import { resetDb, seedAdmin, seedWorker, sql } from "./helpers";
+import { existsSync } from "node:fs";
+import { createWorker, deleteWorker, findDuplicates, getWorker, listWorkers, revealSensitive, updateWorker, workerHistory, workerInputSchema } from "@/server/services/workers";
+import { DELETE as deleteRoute, GET as getRoute } from "@/app/api/admin/workers/[id]/route";
+import { addManualRecords, clockByPhone } from "@/server/services/attendance";
+import { adminCookie, request, resetDb, seedAdmin, seedKiosk, seedWorker, sql } from "./helpers";
 
-let adminId: string;
-beforeEach(async () => { await resetDb(); adminId = (await seedAdmin()).id; });
+let adminId: string, token: string;
+beforeEach(async () => { await resetDb(); const a = await seedAdmin(); adminId = a.id; token = a.token; });
 const input = (o: Record<string, unknown>) => workerInputSchema.parse({ phone: "01012349999", ...o });
 
 describe("근무자 내부 번호", () => {
@@ -132,5 +134,65 @@ describe("근무 이력", () => {
     expect(h.totals.work_days).toBe(2);
     expect(h.totals.total_wage).toBe(200000);
     expect((await getWorker(sql, w.id)).last_work_date).toBe("2026-03-05");
+  });
+});
+
+describe("근무자 CRUD", () => {
+  const full = { name: "홍길동", phone: "010-2222-3333", baseDailyWage: 93000, bankName: "농협", accountNumber: "302-1234-5678-91", accountHolder: "홍길동", rrn: "800101-2123456", address: "고양시 일산동구 장항동 750" };
+
+  it("등록한 정보를 그대로 조회한다 (주민번호·주소는 바로 보인다)", async () => {
+    const { id } = await createWorker(sql, input(full), adminId);
+    const w = await getWorker(sql, id);
+    expect(w).toMatchObject({ name: "홍길동", phone: "01022223333", base_daily_wage: 93000, bank_name: "농협", account_last4: "7891", rrn: "8001012123456", address: "고양시 일산동구 장항동 750" });
+    const [raw] = await sql<{ rrn_enc: string }[]>`SELECT rrn_enc FROM workers WHERE id = ${id}`;
+    expect(raw.rrn_enc).not.toContain("8001012123456"); // 저장은 암호화
+  });
+
+  it("이름·휴대폰·주소·주민번호·일당·계좌를 수정한다", async () => {
+    const { id } = await createWorker(sql, input(full), adminId);
+    await updateWorker(sql, id, input({ ...full, name: "홍길순", phone: "010-2222-4444", baseDailyWage: 95000, address: "파주시 금촌동", rrn: "800101-2654321", bankName: "국민", accountNumber: "123456789012", accountHolder: "홍길순" }), adminId);
+    expect(await getWorker(sql, id)).toMatchObject({ name: "홍길순", phone: "01022224444", base_daily_wage: 95000, address: "파주시 금촌동", rrn: "8001012654321", bank_name: "국민", account_last4: "9012" });
+    // 주소를 비우면 빈 값으로 저장된다.
+    await updateWorker(sql, id, input({ ...full, phone: "010-2222-4444", address: "" }), adminId);
+    expect((await getWorker(sql, id)).address).toBe("");
+  });
+
+  it("주소는 200자까지 받는다", () => {
+    expect(workerInputSchema.safeParse({ ...full, address: "가".repeat(201) }).success).toBe(false);
+  });
+
+  it("출근 기록이 없으면 삭제하고, 같은 번호로 다시 등록할 수 있다", async () => {
+    const { id } = await createWorker(sql, input(full), adminId);
+    await deleteWorker(sql, id, adminId);
+    expect(await sql`SELECT 1 FROM workers WHERE id = ${id}`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM worker_payment_accounts WHERE worker_id = ${id}`).toHaveLength(0);
+    const [log] = await sql<{ action: string }[]>`SELECT action FROM audit_logs WHERE target_id = ${id} AND action = 'worker.delete'`;
+    expect(log).toBeTruthy();
+    await expect(createWorker(sql, input(full), adminId)).resolves.toBeTruthy();
+  });
+
+  it("출근 기록이나 키오스크 이력이 있으면 삭제하지 않는다", async () => {
+    const a = await createWorker(sql, input(full), adminId);
+    await addManualRecords(sql, { workerIds: [a.id], workDate: "2026-03-02", adminId });
+    await expect(deleteWorker(sql, a.id, adminId)).rejects.toMatchObject({ code: "WORKER_HAS_RECORDS" });
+
+    const b = await createWorker(sql, input({ ...full, name: "이을", phone: "010-2222-5555", accountNumber: "999999999999", rrn: "800101-2000000" }), adminId);
+    const kiosk = await seedKiosk(adminId);
+    await clockByPhone(sql, { phone: "01022225555", action: "clock_out", actor: { kind: "kiosk", deviceId: kiosk.id } }).catch(() => {}); // 거절 이력만 남는다
+    await expect(deleteWorker(sql, b.id, adminId)).rejects.toMatchObject({ code: "WORKER_HAS_RECORDS" });
+  });
+
+  it("API로 조회·삭제하고, 로그인하지 않으면 막는다", async () => {
+    const { id } = await createWorker(sql, input(full), adminId);
+    const ctx = { params: Promise.resolve({ id }) };
+    const got = await getRoute(request(`/api/admin/workers/${id}`, { cookies: adminCookie(token) }), ctx);
+    expect((await got.json()).worker).toMatchObject({ rrn: "8001012123456", address: "고양시 일산동구 장항동 750" });
+    expect((await deleteRoute(request(`/api/admin/workers/${id}`, { method: "DELETE" }), ctx)).status).toBe(401);
+    expect((await deleteRoute(request(`/api/admin/workers/${id}`, { method: "DELETE", cookies: adminCookie(token) }), ctx)).status).toBe(200);
+    expect((await getRoute(request(`/api/admin/workers/${id}`, { cookies: adminCookie(token) }), ctx)).status).toBe(404);
+  });
+
+  it("엑셀 기능 경로가 모두 없다", () => {
+    for (const p of ["src/app/api/admin/excel", "src/app/(admin)/excel", "src/server/services/excel.ts"]) expect(existsSync(p)).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ type Screen =
 
 const PREFIX = "010";
 const MAX_DIGITS = 8; // 010 뒤의 8자리만 누른다
-const RESULT_MS = 4000;
+const RESULT_SECONDS = 10; // 완료 화면에서 번호 입력으로 돌아가기까지
 const CONFIRM_IDLE_MS = 20000;
 
 const STATE_HINT: Record<Lookup["state"], string | null> = {
@@ -53,7 +53,6 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
   // 결과 화면과 확인 화면은 잠시 뒤 자동으로 처음으로 돌아간다.
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
-    if (screen.kind === "result") timer.current = setTimeout(reset, RESULT_MS);
     if (screen.kind === "confirm") timer.current = setTimeout(reset, CONFIRM_IDLE_MS);
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [screen, reset]);
@@ -167,7 +166,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
         )}
 
         {screen.kind === "result" && (
-          <button type="button" onClick={reset} className={cn("flex h-full max-h-[34rem] w-full max-w-3xl flex-col items-center justify-center gap-5 rounded-3xl px-8 text-center", screen.ok ? "bg-emerald-600" : "bg-red-600")} role="status">
+          <div className={cn("flex h-full max-h-[34rem] w-full max-w-3xl flex-col items-center justify-center gap-5 rounded-3xl px-8 text-center", screen.ok ? "bg-emerald-600" : "bg-red-600")} role="status">
             {screen.ok ? <CheckCircle2 className="size-28" /> : <XCircle className="size-28" />}
             {screen.ok ? (
               <>
@@ -180,8 +179,8 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
                 <div className="text-3xl leading-snug">{screen.message}</div>
               </>
             )}
-            <div className="mt-2 text-lg opacity-80">잠시 후 처음 화면으로 돌아갑니다.</div>
-          </button>
+            <BackCountdown key={screen.kind + (screen.ok ? screen.at : screen.message)} seconds={RESULT_SECONDS} onDone={reset} />
+          </div>
         )}
       </main>
     </div>
@@ -197,6 +196,22 @@ function PhoneDisplay({ digits }: { digits: string }) {
   return (
     <div aria-live="polite" aria-label={`${PREFIX} ${digits}`} className="text-4xl font-bold tracking-wide tabular-nums">
       {PREFIX}-{seq(0)}-{seq(4)}
+    </div>
+  );
+}
+
+/** 남은 초를 보여 주고 0이 되면 처음 화면으로 돌아간다. 버튼을 누르면 바로 돌아간다. */
+function BackCountdown({ seconds, onDone }: { seconds: number; onDone: () => void }) {
+  const [left, setLeft] = useState(seconds);
+  useEffect(() => {
+    const t = setInterval(() => setLeft((s) => s - 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => { if (left <= 0) onDone(); }, [left, onDone]);
+  return (
+    <div className="mt-2 flex flex-col items-center gap-3">
+      <div className="text-xl opacity-90"><span className="text-3xl font-bold tabular-nums">{Math.max(left, 0)}</span>초 후 번호 입력 화면으로 돌아갑니다</div>
+      <button type="button" onClick={onDone} className="h-16 w-72 rounded-xl bg-white text-2xl font-bold text-slate-900 active:bg-white/80">처음으로</button>
     </div>
   );
 }

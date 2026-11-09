@@ -21,7 +21,6 @@ async function main() {
     ...checkConnectionUrls(databaseUrl, process.env.MIGRATION_DATABASE_URL),
     ...checkEncryptionKey(process.env.DATA_ENCRYPTION_KEY, localKey()),
   ];
-  console.log(`주민등록번호 수집: ${process.env.RRN_COLLECTION_ENABLED === "true" ? "사용" : "사용 안 함"}`);
   print(results);
   if (results.some((r) => r.level === "fail")) { console.log("\n위 항목을 고친 뒤 다시 실행해 주세요."); process.exit(1); }
 
