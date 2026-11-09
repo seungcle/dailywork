@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCheck, ChevronDown, ChevronRight, Download, Undo2 } from "lucide-react";
+import { CheckCheck, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog, EmptyState, ErrorState, LoadingState, PageHeader, Panel, StatCard, WageBadge } from "@/components/admin/common";
 import { Button } from "@/components/ui/button";
@@ -62,8 +62,6 @@ export default function SettlementsPage() {
   return (
     <>
       <PageHeader title="일당 정산" description="금액을 확인하고 확정하세요. 세금·보험료는 계산하지 않으며, 표시 금액은 공제 전 일당입니다.">
-        <Button variant="outline" asChild><a href={`/api/admin/excel/export?type=wage-summary&from=${from}&to=${to}`}><Download className="size-4" />일당 합계</a></Button>
-        <Button variant="outline" asChild><a href={`/api/admin/excel/export?type=payment&from=${from}&to=${to}`}><Download className="size-4" />지급 자료(확정분)</a></Button>
         <Button disabled={!data?.summary.pendingCount} onClick={() => setConfirmAll(true)}><CheckCheck className="size-4" />기간 전체 확정</Button>
       </PageHeader>
       <div className="mb-3 flex flex-wrap items-end gap-3">

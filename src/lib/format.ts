@@ -55,6 +55,11 @@ export function formatPhoneInput(input: string) {
   if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
 }
+/** 주민등록번호 표시: 9001011234567 → 900101-1234567 */
+export function formatRrn(r: string | null | undefined) {
+  if (!r) return "-";
+  return r.length === 13 ? `${r.slice(0, 6)}-${r.slice(6)}` : r;
+}
 /** 키오스크 화면용 이름 가림: 홍길동 → 홍*동, 이산 → 이* */
 export function maskName(name: string) {
   const c = [...name.trim()];

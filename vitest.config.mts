@@ -15,7 +15,6 @@ export default defineConfig({
       DATABASE_URL: "postgres://dailywork:dailywork_local_only@127.0.0.1:54329/dailywork_test",
       // 테스트 전용 고정 키 (32바이트 0)
       DATA_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      RRN_COLLECTION_ENABLED: "true",
     },
   },
 });

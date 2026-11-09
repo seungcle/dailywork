@@ -4,7 +4,6 @@ import { tx } from "../db";
 import { blindIndex, decryptField, encryptField } from "../crypto";
 import { badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
-import { env } from "../env";
 import { normalizePhone } from "@/lib/format";
 
 const money = z.number().int().min(0).max(100_000_000);
@@ -18,13 +17,14 @@ export const workerInputSchema = z.object({
   accountNumber: z.string().nullish().transform((v) => (v ? v.replace(/[^0-9]/g, "") : null)).refine((v) => v === null || /^[0-9]{6,20}$/.test(v), "계좌번호 형식이 올바르지 않습니다."),
   accountHolder: z.string().trim().max(50).nullish(),
   rrn: z.string().nullish().transform((v) => (v ? v.replace(/[^0-9]/g, "") : null)).refine((v) => v === null || /^[0-9]{13}$/.test(v), "주민등록번호는 13자리여야 합니다."),
+  address: z.string().trim().max(200, "주소는 200자 이내로 입력해 주세요.").default(""),
   memo: z.string().max(1000).default(""),
 });
 export type WorkerInput = z.output<typeof workerInputSchema>;
 
 export type WorkerListRow = {
   id: string; worker_number: number; name: string; phone: string | null; base_daily_wage: number; is_active: boolean;
-  memo: string; created_at: Date; last_work_date: string | null; bank_name: string | null; account_last4: string | null; account_holder: string | null;
+  address: string; memo: string; created_at: Date; last_work_date: string | null; bank_name: string | null; account_last4: string | null; account_holder: string | null;
 };
 
 const SORTS: Record<string, string> = {
@@ -46,7 +46,7 @@ export async function listWorkers(sql: Sql, opts: { q?: string; status?: "active
       OR (${digits !== ""} AND w.phone LIKE ${"%" + digits + "%"}))
     AND (${status === "all"} OR w.is_active = ${status === "active"})`;
   const rows = await sql<WorkerListRow[]>`
-    SELECT w.id, w.worker_number, w.name, w.phone, w.base_daily_wage, w.is_active, w.memo, w.created_at,
+    SELECT w.id, w.worker_number, w.name, w.phone, w.base_daily_wage, w.is_active, w.address, w.memo, w.created_at,
       (SELECT max(r.work_date)::text FROM work_records r WHERE r.worker_id = w.id AND r.deleted_at IS NULL) AS last_work_date,
       a.bank_name, a.account_last4, a.account_holder
     FROM workers w LEFT JOIN worker_payment_accounts a ON a.worker_id = w.id AND a.is_current
@@ -103,7 +103,6 @@ function assertAccountComplete(i: WorkerInput) {
   if (filled > 0 && filled < 3) throw badRequest("은행명, 계좌번호, 예금주를 모두 입력해 주세요.");
 }
 function rrnColumns(i: WorkerInput) {
-  if (i.rrn && !env.rrnEnabled) throw badRequest("주민등록번호 수집이 비활성화되어 있습니다.");
   return i.rrn ? { enc: encryptField(i.rrn), hash: blindIndex(i.rrn) } : null;
 }
 async function replaceAccount(t: Sql, workerId: string, i: WorkerInput) {
@@ -124,8 +123,8 @@ export async function createWorker(sql: Sql, input: WorkerInput, adminId: string
       if (dups.length) throw conflict("DUPLICATE_WORKER", "이미 등록된 근무자와 정보가 겹칩니다.", { candidates: dups });
     }
     const [w] = await t<{ id: string; worker_number: number }[]>`
-      INSERT INTO workers (name, phone, base_daily_wage, rrn_enc, rrn_hash, memo, created_by)
-      VALUES (${input.name}, ${input.phone}, ${input.baseDailyWage}, ${rrn?.enc ?? null}, ${rrn?.hash ?? null}, ${input.memo}, ${adminId})
+      INSERT INTO workers (name, phone, base_daily_wage, rrn_enc, rrn_hash, address, memo, created_by)
+      VALUES (${input.name}, ${input.phone}, ${input.baseDailyWage}, ${rrn?.enc ?? null}, ${rrn?.hash ?? null}, ${input.address}, ${input.memo}, ${adminId})
       RETURNING id, worker_number`;
     if (input.accountNumber) await replaceAccount(t, w.id, input);
     await audit(t, {
@@ -137,15 +136,17 @@ export async function createWorker(sql: Sql, input: WorkerInput, adminId: string
 }
 
 export async function getWorker(sql: Sql, id: string) {
-  const [w] = await sql<(WorkerListRow & { has_rrn: boolean })[]>`
-    SELECT w.id, w.worker_number, w.name, w.phone, w.base_daily_wage, w.is_active, w.memo, w.created_at,
-      (w.rrn_enc IS NOT NULL) AS has_rrn,
+  const [w] = await sql<(WorkerListRow & { has_rrn: boolean; rrn_enc: string | null })[]>`
+    SELECT w.id, w.worker_number, w.name, w.phone, w.base_daily_wage, w.is_active, w.address, w.memo, w.created_at,
+      (w.rrn_enc IS NOT NULL) AS has_rrn, w.rrn_enc,
       (SELECT max(r.work_date)::text FROM work_records r WHERE r.worker_id = w.id AND r.deleted_at IS NULL) AS last_work_date,
       a.bank_name, a.account_last4, a.account_holder
     FROM workers w LEFT JOIN worker_payment_accounts a ON a.worker_id = w.id AND a.is_current
     WHERE w.id = ${id}`;
   if (!w) throw notFound("근무자를 찾을 수 없습니다.");
-  return w;
+  // 주민등록번호는 저장할 때만 암호화하고, 관리자 화면에는 그대로 보여 준다.
+  const { rrn_enc, ...rest } = w;
+  return { ...rest, rrn: rrn_enc ? decryptField(rrn_enc) : null };
 }
 
 /**
@@ -164,7 +165,7 @@ export async function updateWorker(sql: Sql, id: string, input: WorkerInput, adm
       if (!before.account_last4) throw badRequest("은행명, 계좌번호, 예금주를 모두 입력해 주세요.");
       if (!input.bankName || !input.accountHolder) throw badRequest("은행명과 예금주를 모두 입력해 주세요.");
     }
-    await t`UPDATE workers SET name = ${input.name}, phone = ${input.phone}, base_daily_wage = ${input.baseDailyWage}, memo = ${input.memo},
+    await t`UPDATE workers SET name = ${input.name}, phone = ${input.phone}, base_daily_wage = ${input.baseDailyWage}, address = ${input.address}, memo = ${input.memo},
               rrn_enc = COALESCE(${rrn?.enc ?? null}, rrn_enc), rrn_hash = COALESCE(${rrn?.hash ?? null}, rrn_hash)
             WHERE id = ${id}`;
     if (accountChanging) await replaceAccount(t, id, input);
@@ -173,8 +174,8 @@ export async function updateWorker(sql: Sql, id: string, input: WorkerInput, adm
     }
     await audit(t, {
       administratorId: adminId, action: "worker.update", targetType: "worker", targetId: id,
-      before: { name: before.name, phone: before.phone, base_daily_wage: before.base_daily_wage, account_last4: before.account_last4 },
-      after: { name: input.name, phone: input.phone, base_daily_wage: input.baseDailyWage, account_changed: accountChanging, rrn_changed: !!rrn },
+      before: { name: before.name, phone: before.phone, base_daily_wage: before.base_daily_wage, address: before.address, account_last4: before.account_last4 },
+      after: { name: input.name, phone: input.phone, base_daily_wage: input.baseDailyWage, address: input.address, account_changed: accountChanging, rrn_changed: !!rrn },
     });
   }));
 }
@@ -184,6 +185,21 @@ export async function setWorkerActive(sql: Sql, id: string, active: boolean, adm
     const [w] = await t`UPDATE workers SET is_active = ${active}, deactivated_at = ${active ? null : new Date()} WHERE id = ${id} RETURNING id`;
     if (!w) throw notFound("근무자를 찾을 수 없습니다.");
     await audit(t, { administratorId: adminId, action: active ? "worker.activate" : "worker.deactivate", targetType: "worker", targetId: id });
+  });
+}
+
+/**
+ * 근무자 삭제. 출근 기록이나 키오스크 이력이 하나라도 있으면 기록 보존을 위해 삭제하지 않고 비활성화를 안내한다.
+ */
+export async function deleteWorker(sql: Sql, id: string, adminId: string) {
+  return tx(sql, async (t) => {
+    const [w] = await t<{ id: string; name: string; phone: string }[]>`SELECT id, name, phone FROM workers WHERE id = ${id} FOR UPDATE`;
+    if (!w) throw notFound("근무자를 찾을 수 없습니다.");
+    const [used] = await t`SELECT 1 FROM work_records WHERE worker_id = ${id} UNION ALL SELECT 1 FROM attendance_events WHERE worker_id = ${id} LIMIT 1`;
+    if (used) throw conflict("WORKER_HAS_RECORDS", "출근 기록이 있는 근무자는 삭제할 수 없습니다. 대신 비활성화해 주세요.");
+    await t`DELETE FROM worker_payment_accounts WHERE worker_id = ${id}`;
+    await t`DELETE FROM workers WHERE id = ${id}`;
+    await audit(t, { administratorId: adminId, action: "worker.delete", targetType: "worker", targetId: id, before: { name: w.name, phone: w.phone } });
   });
 }
 

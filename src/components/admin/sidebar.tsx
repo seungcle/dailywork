@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarCheck, FileSpreadsheet, LayoutDashboard, LogOut, Settings, TabletSmartphone, Users, Wallet } from "lucide-react";
+import { CalendarCheck, LayoutDashboard, LogOut, Settings, TabletSmartphone, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,6 @@ const NAV = [
   { href: "/attendance", label: "일일 출석부", icon: CalendarCheck },
   { href: "/workers", label: "근무자 관리", icon: Users },
   { href: "/settlements", label: "일당 정산", icon: Wallet },
-  { href: "/excel", label: "Excel 관리", icon: FileSpreadsheet },
   { href: "/kiosk-devices", label: "키오스크 관리", icon: TabletSmartphone },
   { href: "/settings", label: "설정", icon: Settings },
 ];

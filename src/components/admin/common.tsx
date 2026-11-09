@@ -100,7 +100,8 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
           <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>취소</Button>
           <Button variant={destructive ? "destructive" : "default"} disabled={busy || blocked} onClick={async () => {
             setBusy(true);
-            try { await onConfirm(reason.trim()); setReason(""); onOpenChange(false); } finally { setBusy(false); }
+            // 실패하면 onConfirm이 이미 안내를 띄웠으므로 창만 열어 둔다(처리되지 않은 오류로 남기지 않는다).
+            try { await onConfirm(reason.trim()); setReason(""); onOpenChange(false); } catch { /* 창 유지 */ } finally { setBusy(false); }
           }}>{busy && <Loader2 className="size-4 animate-spin" />}{confirmLabel}</Button>
         </DialogFooter>
       </DialogContent>

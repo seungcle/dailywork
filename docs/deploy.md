@@ -16,7 +16,7 @@
 | Supabase 사용 범위 | PostgreSQL만 사용 | 인증, 권한, 업무 규칙은 모두 서버 코드와 DB 제약조건에 있습니다. |
 | Supabase Auth | 사용 안 함 | 사전 발급 ID/PW와 태블릿 세션을 자체 테이블로 관리합니다. |
 | 공개 API(anon 키) | 차단 | 브라우저가 DB에 직접 접근할 일이 없습니다. 키를 앱에 넣지 않습니다. |
-| Realtime, Storage | 사용 안 함 | 출석부는 15초 갱신으로 충분하고, Excel 파일은 저장하지 않습니다. |
+| Realtime, Storage | 사용 안 함 | 출석부는 15초 갱신으로 충분하고, 파일은 저장하지 않습니다. |
 | 앱 접속 | Transaction pooler(6543) | 서버리스 함수마다 직접 연결하면 연결 수가 고갈됩니다. 앱은 prepared statement를 끄고 인스턴스당 연결을 3개로 제한합니다. |
 | 마이그레이션 접속 | Session pooler(5432) 또는 Direct | 스키마 변경은 트랜잭션 풀러를 거치지 않습니다. |
 | 리전 | 서울로 통일 | 개인정보 저장 위치와 응답 속도 때문입니다. Vercel은 `vercel.json`에 지정되어 있습니다. |
@@ -38,7 +38,6 @@ Supabase는 `public` 스키마를 공개 API로 노출하고, 새 테이블에 `
 | --- | --- | --- |
 | `DATABASE_URL` | Vercel, `.env.deploy` | Transaction pooler 연결 문자열 |
 | `DATA_ENCRYPTION_KEY` | Vercel, `.env.deploy` | 계좌번호·주민등록번호 암호화 키. 운영 전용 |
-| `RRN_COLLECTION_ENABLED` | Vercel, `.env.deploy` | 법적 근거 확인 전까지 `false` |
 | `MIGRATION_DATABASE_URL` | `.env.deploy`만 | Session pooler 연결 문자열 |
 
 `DATA_ENCRYPTION_KEY`를 잃어버리면 저장된 계좌번호를 복구할 수 없습니다. 비밀번호 관리 도구에 따로 보관하세요. `.env.deploy`는 Git에 올라가지 않습니다.

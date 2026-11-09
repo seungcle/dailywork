@@ -11,13 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { formatPhone, formatPhoneInput, parseMoney } from "@/lib/format";
 
-export type WorkerFormValue = { name: string; phone: string; baseDailyWage: string; bankName: string; accountNumber: string; accountHolder: string; rrn: string; memo: string };
-const EMPTY: WorkerFormValue = { name: "", phone: "", baseDailyWage: "", bankName: "", accountNumber: "", accountHolder: "", rrn: "", memo: "" };
+export type WorkerFormValue = { name: string; phone: string; baseDailyWage: string; bankName: string; accountNumber: string; accountHolder: string; rrn: string; address: string; memo: string };
+const EMPTY: WorkerFormValue = { name: "", phone: "", baseDailyWage: "", bankName: "", accountNumber: "", accountHolder: "", rrn: "", address: "", memo: "" };
 type Candidate = { id: string; name: string; phone: string | null; is_active: boolean; reasons: string[]; strong: boolean };
 
 type Props = {
   onOpenChange: (o: boolean) => void; workerId?: string; initial?: Partial<WorkerFormValue>; hasAccount?: boolean;
-  rrnEnabled: boolean; hasRrn?: boolean; onSaved: (r: { id: string }) => void;
+  onSaved: (r: { id: string }) => void;
 };
 
 /** 열릴 때마다 입력값을 새로 시작하도록 닫혀 있으면 렌더링하지 않는다. */
@@ -25,7 +25,7 @@ export function WorkerFormDialog({ open, ...props }: Props & { open: boolean }) 
   return open ? <WorkerForm {...props} /> : null;
 }
 
-function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, hasRrn, onSaved }: Props) {
+function WorkerForm({ onOpenChange, workerId, initial, hasAccount, onSaved }: Props) {
   const [v, setV] = useState<WorkerFormValue>({ ...EMPTY, ...initial, phone: formatPhoneInput(initial?.phone ?? "") });
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [blocked, setBlocked] = useState(false);
@@ -48,7 +48,7 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, h
     if (wage === null) { setError("기본 일당은 숫자로 입력해 주세요."); return; }
     const worker = {
       name: v.name, phone: v.phone || null, baseDailyWage: wage, bankName: v.bankName || null, accountNumber: v.accountNumber || null,
-      accountHolder: v.accountHolder || null, rrn: v.rrn || null, memo: v.memo,
+      accountHolder: v.accountHolder || null, rrn: v.rrn || null, address: v.address, memo: v.memo,
     };
     setBusy(true); setError(null);
     try {
@@ -86,11 +86,8 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, rrnEnabled, h
             <Input id="w-account" inputMode="numeric" autoComplete="off" value={v.accountNumber} onChange={set("accountNumber")} onBlur={check} />
           </F>
           <F id="w-holder" label="예금주"><Input id="w-holder" value={v.accountHolder} onChange={set("accountHolder")} /></F>
-          {rrnEnabled && (
-            <F id="w-rrn" label="주민등록번호" hint={editing && hasRrn ? "변경할 때만 입력하세요." : "수집 근거가 확인된 경우에만 입력하세요."}>
-              <Input id="w-rrn" autoComplete="off" value={v.rrn} onChange={set("rrn")} onBlur={check} />
-            </F>
-          )}
+          <F id="w-rrn" label="주민등록번호"><Input id="w-rrn" autoComplete="off" placeholder="000000-0000000" value={v.rrn} onChange={set("rrn")} onBlur={check} /></F>
+          <div className="col-span-2 space-y-1.5"><Label htmlFor="w-address">주소</Label><Input id="w-address" value={v.address} onChange={set("address")} /></div>
           <div className="col-span-2 space-y-1.5"><Label htmlFor="w-memo">메모</Label><Textarea id="w-memo" rows={2} value={v.memo} onChange={set("memo")} /></div>
         </form>
 
