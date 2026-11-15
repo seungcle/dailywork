@@ -7,7 +7,7 @@ import { env } from "../env";
 
 export const KIOSK_COOKIE = "dw_kiosk";
 const PAIRING_MINUTES = 15;
-const SESSION_DAYS = 365;
+const SESSION_DAYS = 7; // QR로 연결한 태블릿은 일주일 동안 유지된다
 
 export const kioskCookieOptions = () => ({
   httpOnly: true, secure: env.secureCookies, sameSite: "strict" as const, path: "/", maxAge: SESSION_DAYS * 86400,

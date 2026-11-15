@@ -82,7 +82,8 @@ describe("정산 확정", () => {
     const zero = await seedWorker(adminId, { baseDailyWage: 0 });
     await worked(a.id, "2026-03-02");
     await worked(zero.id, "2026-03-02");
-    await addManualRecords(sql, { workerIds: [open.id], workDate: "2026-03-02", clockInAt: kst("2026-03-02T08:00:00"), adminId });
+    // 18시 이후 출근은 자동 퇴근 대상이 아니라 퇴근 누락으로 남는다.
+    await addManualRecords(sql, { workerIds: [open.id], workDate: "2026-03-02", clockInAt: kst("2026-03-02T19:00:00"), adminId });
     expect(await confirmWages(sql, { from: "2026-03-02", to: "2026-03-02", adminId })).toEqual({ confirmed: 1, skippedOpen: 1, skippedZero: 1 });
   });
 

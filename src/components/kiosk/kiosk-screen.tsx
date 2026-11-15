@@ -1,15 +1,20 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Delete, Loader2, LogIn, LogOut, XCircle } from "lucide-react";
+import { CheckCircle2, Delete, Loader2, LogIn, LogOut, Moon, XCircle } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatPhone, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Lookup = { maskedName: string; state: "can_clock_in" | "can_clock_out" | "completed_today" | "needs_admin" };
+type Lookup = {
+  maskedName: string;
+  state: "can_clock_in" | "working" | "completed_today" | "needs_admin";
+  overtime: "ok" | "no_record" | "too_early" | "confirmed";
+};
+type Action = "clock_in" | "overtime";
 type Screen =
   | { kind: "input" }
   | { kind: "confirm"; phone: string; worker: Lookup }
-  | { kind: "result"; ok: true; action: "clock_in" | "clock_out"; name: string; at: string }
+  | { kind: "result"; ok: true; action: Action; name: string; at: string }
   | { kind: "result"; ok: false; message: string };
 
 const PREFIX = "010";
@@ -17,11 +22,19 @@ const MAX_DIGITS = 8; // 010 뒤의 8자리만 누른다
 const RESULT_SECONDS = 10; // 완료 화면에서 번호 입력으로 돌아가기까지
 const CONFIRM_IDLE_MS = 20000;
 
+// 평소(출근) 모드 안내
 const STATE_HINT: Record<Lookup["state"], string | null> = {
   can_clock_in: null,
-  can_clock_out: null,
-  completed_today: "오늘은 이미 출퇴근을 완료했습니다.",
+  working: "이미 출근했습니다. 퇴근은 18시에 자동으로 기록됩니다.",
+  completed_today: "오늘 근무가 끝났습니다. 야근하셨다면 야근 모드로 기록해 주세요.",
   needs_admin: "이전 근무의 퇴근 기록이 없습니다. 관리자에게 문의해 주세요.",
+};
+// 야근 모드 안내
+const OVERTIME_HINT: Record<Lookup["overtime"], string | null> = {
+  ok: null,
+  no_record: "오늘 출근 기록이 없어 야근을 기록할 수 없습니다.",
+  too_early: "야근 기록은 18시 이후에 할 수 있습니다.",
+  confirmed: "정산이 확정된 날짜입니다. 관리자에게 문의해 주세요.",
 };
 
 function Clock() {
@@ -46,9 +59,11 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
   const [digits, setDigits] = useState("");
   const [screen, setScreen] = useState<Screen>({ kind: "input" });
   const [busy, setBusy] = useState(false);
+  // 야근 모드: 18시 이후 일을 마친 사람이 실제 퇴근 시각을 찍는다. 한 번 쓰고 나면 평소 모드로 돌아간다.
+  const [overtime, setOvertime] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const reset = useCallback(() => { setDigits(""); setScreen({ kind: "input" }); }, []);
+  const reset = useCallback(() => { setDigits(""); setOvertime(false); setScreen({ kind: "input" }); }, []);
 
   // 결과 화면과 확인 화면은 잠시 뒤 자동으로 처음으로 돌아간다.
   useEffect(() => {
@@ -87,7 +102,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
     } catch (e) { fail(e); } finally { setBusy(false); }
   }, [digits, busy, fail]);
 
-  const record = useCallback(async (phone: string, action: "clock_in" | "clock_out") => {
+  const record = useCallback(async (phone: string, action: Action) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -103,21 +118,28 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
   useEffect(() => {
     if (screen.kind !== "input") return;
     const onKey = (e: KeyboardEvent) => {
-      if (/^[0-9]$/.test(e.key)) press(e.key);
-      else if (e.key === "Backspace") back();
-      else if (e.key === "Enter") void submitNumber();
+      // 처리한 키는 초점이 있는 버튼(야근 모드 등)에 다시 전달되지 않게 막는다.
+      if (/^[0-9]$/.test(e.key)) { e.preventDefault(); press(e.key); }
+      else if (e.key === "Backspace") { e.preventDefault(); back(); }
+      else if (e.key === "Enter") { e.preventDefault(); void submitNumber(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [screen.kind, press, back, submitNumber]);
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between px-8 py-4">
+    <div className={cn("flex h-full flex-col transition-colors", overtime && "bg-indigo-950")}>
+      <header className="flex items-center justify-between gap-4 px-8 py-4">
         <div>
-          <div className="text-xl font-bold">출퇴근 체크</div>
+          <div className="text-xl font-bold">{overtime ? "야근 퇴근 기록" : "출근 체크"}</div>
           <div className="text-sm text-blue-200">{deviceName}</div>
         </div>
+        {screen.kind === "input" && (
+          <button type="button" aria-pressed={overtime} onClick={(e) => { setOvertime((v) => !v); e.currentTarget.blur(); }}
+            className={cn("flex h-14 items-center gap-2 rounded-xl px-5 text-xl font-bold", overtime ? "bg-amber-400 text-slate-900" : "bg-white/15 active:bg-white/25")}>
+            <Moon className="size-6" />{overtime ? "야근 모드 끄기" : "야근 모드"}
+          </button>
+        )}
         <Clock />
       </header>
 
@@ -125,7 +147,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
         {screen.kind === "input" && (
           <div className="flex w-full max-w-md flex-col gap-3">
             <div className="flex h-20 shrink-0 flex-col items-center justify-center rounded-xl bg-white/10">
-              <div className="text-sm text-blue-200">휴대폰 번호 뒤 8자리를 눌러 주세요</div>
+              <div className="text-sm text-blue-200">{overtime ? "야근을 마친 분은 휴대폰 번호 뒤 8자리를 눌러 주세요" : "휴대폰 번호 뒤 8자리를 눌러 주세요"}</div>
               <PhoneDisplay digits={digits} />
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -150,17 +172,21 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
               <div className="mt-1 text-6xl font-bold">{screen.worker.maskedName} 님</div>
               <div className="mt-3 text-xl text-blue-100">본인이 맞으면 아래 버튼을 눌러 주세요.</div>
             </div>
-            {STATE_HINT[screen.worker.state] && <div className="rounded-lg bg-amber-400 px-5 py-3 text-xl font-semibold text-slate-900">{STATE_HINT[screen.worker.state]}</div>}
-            <div className="grid w-full grid-cols-2 gap-5">
+            {(() => {
+              const hint = overtime ? OVERTIME_HINT[screen.worker.overtime] : STATE_HINT[screen.worker.state];
+              return hint && <div className="rounded-lg bg-amber-400 px-5 py-3 text-xl font-semibold text-slate-900">{hint}</div>;
+            })()}
+            {overtime ? (
+              <button type="button" disabled={busy || screen.worker.overtime !== "ok"} onClick={() => record(screen.phone, "overtime")}
+                className="flex h-44 w-full max-w-xl flex-col items-center justify-center gap-2 rounded-2xl bg-orange-500 text-4xl font-bold active:bg-orange-600 disabled:bg-white/10 disabled:text-white/30">
+                <LogOut className="size-11" />야근 퇴근 기록
+              </button>
+            ) : (
               <button type="button" disabled={busy || screen.worker.state !== "can_clock_in"} onClick={() => record(screen.phone, "clock_in")}
-                className="flex h-44 flex-col items-center justify-center gap-2 rounded-2xl bg-blue-500 text-4xl font-bold active:bg-blue-600 disabled:bg-white/10 disabled:text-white/30">
+                className="flex h-44 w-full max-w-xl flex-col items-center justify-center gap-2 rounded-2xl bg-blue-500 text-4xl font-bold active:bg-blue-600 disabled:bg-white/10 disabled:text-white/30">
                 <LogIn className="size-11" />출근하기
               </button>
-              <button type="button" disabled={busy || screen.worker.state !== "can_clock_out"} onClick={() => record(screen.phone, "clock_out")}
-                className="flex h-44 flex-col items-center justify-center gap-2 rounded-2xl bg-orange-500 text-4xl font-bold active:bg-orange-600 disabled:bg-white/10 disabled:text-white/30">
-                <LogOut className="size-11" />퇴근하기
-              </button>
-            </div>
+            )}
             <button type="button" onClick={reset} className="h-16 w-64 rounded-xl bg-white/15 text-2xl font-semibold active:bg-white/25">취소</button>
           </div>
         )}
@@ -170,8 +196,9 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
             {screen.ok ? <CheckCircle2 className="size-28" /> : <XCircle className="size-28" />}
             {screen.ok ? (
               <>
-                <div className="text-5xl font-bold">{screen.action === "clock_in" ? "출근" : "퇴근"} 완료</div>
+                <div className="text-5xl font-bold">{screen.action === "clock_in" ? "출근 완료" : "야근 퇴근 완료"}</div>
                 <div className="text-3xl">{screen.name} 님 · {formatTime(screen.at)}</div>
+                {screen.action === "clock_in" && <div className="text-xl opacity-90">퇴근은 18시에 자동으로 기록됩니다. 야근하면 일이 끝난 뒤 야근 모드로 찍어 주세요.</div>}
               </>
             ) : (
               <>
