@@ -82,7 +82,7 @@ describe("비등록 키오스크 차단", () => {
     const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies: kioskCookie(k.token) }), noParams);
     const text = await res.text();
     expect(text).not.toContain("홍길동");
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "state"]);
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "overtime", "state"]);
   });
 
   it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
@@ -113,6 +113,14 @@ describe("비등록 키오스크 차단", () => {
       const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone }, cookies: kioskCookie(k.token) }), noParams);
       expect(res.status).toBe(400);
     }
+  });
+});
+
+describe("태블릿 연결 유지 기간", () => {
+  it("QR로 연결한 태블릿은 7일 동안 유지된다", async () => {
+    const k = await seedKiosk(adminId);
+    const [row] = await sql<{ days: number }[]>`SELECT extract(epoch FROM expires_at - created_at) / 86400 AS days FROM kiosk_sessions WHERE device_id = ${k.id}`;
+    expect(Math.round(Number(row.days))).toBe(7);
   });
 });
 

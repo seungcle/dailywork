@@ -18,7 +18,7 @@ import { addDays, formatClock, formatDateTime, formatPhone, formatWon, fromKstIn
 
 type Row = {
   record_id: string; worker_id: string; phone: string; name: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null;
-  source: string; base_wage: number; actual_wage: number; extra_pay: number; final_wage: number; wage_status: string; attendance_status: string;
+  source: string; clock_out_auto: boolean; base_wage: number; actual_wage: number; extra_pay: number; final_wage: number; wage_status: string; attendance_status: string;
 };
 type Daily = { date: string; rows: Row[]; summary: { total: number; working: number; done: number; scheduled: number; missingOut: number; totalWage: number } };
 
@@ -85,7 +85,10 @@ export function AttendanceBoard({ date }: { date: string }) {
                       <TableCell className="font-medium">{r.name}</TableCell>
                       <TableCell className="tabular-nums">{formatPhone(r.phone)}</TableCell>
                       <TableCell className="tabular-nums">{formatClock(r.clock_in_at, r.work_date)}</TableCell>
-                      <TableCell className="tabular-nums">{formatClock(r.clock_out_at, r.work_date)}</TableCell>
+                      <TableCell className="tabular-nums">
+                        {formatClock(r.clock_out_at, r.work_date)}
+                        {r.clock_out_auto && <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground" title="18시 자동 퇴근. 조퇴했다면 수정해 주세요.">자동</span>}
+                      </TableCell>
                       <TableCell><AttendanceBadge status={r.attendance_status} /></TableCell>
                       <TableCell><Badge variant="outline">{r.source === "kiosk" ? "키오스크" : "수동"}</Badge></TableCell>
                       <TableCell className="text-right"><MoneyCell key={`a-${r.record_id}-${r.actual_wage}`} recordId={r.record_id} field="actualWage" value={r.actual_wage} label={`${r.name} 당일 일당`} disabled={r.wage_status === "confirmed"} onSaved={reload} /></TableCell>

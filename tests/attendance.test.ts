@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addManualRecords, AttendanceError, clockIn, clockOut, copyPreviousDay, correctRecord, deleteRecord, getDaily, lookupForKiosk, type Actor } from "@/server/services/attendance";
+import { addManualRecords, AttendanceError, clockByPhone, clockIn, clockOut, copyPreviousDay, correctRecord, deleteRecord, getDaily, lookupForKiosk, type Actor } from "@/server/services/attendance";
 import { setWorkerActive } from "@/server/services/workers";
 import { confirmWages } from "@/server/services/settlement";
 import { kst, resetDb, seedAdmin, seedKiosk, seedWorker, sql } from "./helpers";
@@ -55,14 +55,80 @@ describe("누락 퇴근", () => {
     expect(r.clock_out_at.getTime()).toBe(first.getTime());
   });
 
-  it("전날 퇴근을 빠뜨리면 다음 날 재출근을 막고 관리자 보정 뒤 출근할 수 있다", async () => {
-    const { recordId } = await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:00:00") });
-    const nextDay = kst("2026-03-03T09:00:00");
+  it("18시 이후 출근하고 퇴근을 빠뜨리면 다음 날 재출근을 막고 관리자 보정 뒤 출근할 수 있다", async () => {
+    const { recordId } = await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T19:00:00") });
+    await expect(clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-03T09:00:00") })).rejects.toSatisfy((e) => code(e) === "ALREADY_CLOCKED_IN");
+    const nextDay = kst("2026-03-03T20:00:00"); // 24시간이 지나면 관리자 보정이 필요하다
     await expect(clockIn(sql, { workerNumber: num, actor, now: nextDay })).rejects.toSatisfy((e) => code(e) === "OPEN_SHIFT_EXISTS");
     await expect(clockOut(sql, { workerNumber: num, actor, now: nextDay })).rejects.toSatisfy((e) => code(e) === "SHIFT_TOO_LONG");
-    await correctRecord(sql, { recordId, clockInAt: kst("2026-03-02T08:00:00"), clockOutAt: kst("2026-03-02T17:00:00"), reason: "퇴근 누락", adminId });
+    await correctRecord(sql, { recordId, clockInAt: kst("2026-03-02T19:00:00"), clockOutAt: kst("2026-03-02T23:00:00"), reason: "퇴근 누락", adminId });
     const r = await clockIn(sql, { workerNumber: num, actor, now: nextDay });
     expect(r.workDate).toBe("2026-03-03");
+  });
+});
+
+describe("18시 자동 퇴근", () => {
+  const record = () => sql<{ clock_out_at: Date | null; clock_out_auto: boolean }[]>`SELECT clock_out_at, clock_out_auto FROM work_records ORDER BY work_date`;
+
+  it("18시 전에는 근무 중이고, 18시가 지나면 그날 18:00 퇴근으로 채워진다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T17:59:00"))).state).toBe("working");
+    expect((await record())[0].clock_out_at).toBeNull();
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T18:30:00"))).state).toBe("completed_today");
+    expect(await record()).toEqual([{ clock_out_at: kst("2026-03-02T18:00:00"), clock_out_auto: true }]);
+  });
+
+  it("퇴근을 안 찍어도 다음 날 바로 출근할 수 있다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    const r = await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-03T08:50:00") });
+    expect(r.workDate).toBe("2026-03-03");
+    const rows = await record();
+    expect(rows[0]).toEqual({ clock_out_at: kst("2026-03-02T18:00:00"), clock_out_auto: true });
+  });
+
+  it("출석부를 열면 자동 퇴근이 반영되어 퇴근 완료로 보인다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    const d = await getDaily(sql, "2026-03-02");
+    expect(d.rows[0]).toMatchObject({ attendance_status: "done", clock_out_auto: true });
+  });
+
+  it("관리자가 퇴근 시각을 고치면(조퇴) 자동 표시가 사라진다", async () => {
+    const { recordId } = await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    await getDaily(sql, "2026-03-02");
+    await correctRecord(sql, { recordId, clockInAt: kst("2026-03-02T08:50:00"), clockOutAt: kst("2026-03-02T15:00:00"), reason: "조퇴", adminId });
+    expect(await record()).toEqual([{ clock_out_at: kst("2026-03-02T15:00:00"), clock_out_auto: false }]);
+  });
+});
+
+describe("야근 모드", () => {
+  const out = () => sql<{ clock_out_at: Date; clock_out_auto: boolean }[]>`SELECT clock_out_at, clock_out_auto FROM work_records`.then((r) => r[0]);
+
+  it("18시 이후 찍은 시각이 퇴근 시각이 되고, 자동 퇴근을 덮어쓴다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T20:10:00"))).overtime).toBe("ok");
+    await clockByPhone(sql, { phone: PHONE, action: "overtime", actor, now: kst("2026-03-02T20:10:00") });
+    expect(await out()).toEqual({ clock_out_at: kst("2026-03-02T20:10:00"), clock_out_auto: false });
+  });
+
+  it("자정을 넘겨 찍으면 전날 근무의 퇴근으로 기록한다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    const r = await clockByPhone(sql, { phone: PHONE, action: "overtime", actor, now: kst("2026-03-03T01:30:00") });
+    expect(r.workDate).toBe("2026-03-02");
+    expect((await out()).clock_out_at).toEqual(kst("2026-03-03T01:30:00"));
+  });
+
+  it("18시 전이거나 출근 기록이 없으면 거절한다", async () => {
+    await expect(clockByPhone(sql, { phone: PHONE, action: "overtime", actor, now: kst("2026-03-02T19:00:00") })).rejects.toSatisfy((e) => code(e) === "NO_RECORD_FOR_OVERTIME");
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T17:00:00"))).overtime).toBe("too_early");
+    await expect(clockByPhone(sql, { phone: PHONE, action: "overtime", actor, now: kst("2026-03-02T17:00:00") })).rejects.toSatisfy((e) => code(e) === "OVERTIME_TOO_EARLY");
+  });
+
+  it("정산이 확정된 날은 바꿀 수 없다", async () => {
+    await clockIn(sql, { workerNumber: num, actor, now: kst("2026-03-02T08:50:00") });
+    await getDaily(sql, "2026-03-02");
+    await sql`UPDATE daily_wages SET status = 'confirmed', confirmed_at = now()`;
+    await expect(clockByPhone(sql, { phone: PHONE, action: "overtime", actor, now: kst("2026-03-02T20:00:00") })).rejects.toSatisfy((e) => code(e) === "RECORD_CONFIRMED");
   });
 });
 
@@ -129,9 +195,9 @@ describe("근무자 상태", () => {
     await sql`UPDATE workers SET name = '홍길동' WHERE id = ${workerId}`;
     const now = kst("2026-03-02T08:00:00");
     const a = await lookupForKiosk(sql, PHONE, now);
-    expect(a).toEqual({ maskedName: "홍*동", state: "can_clock_in" });
+    expect(a).toEqual({ maskedName: "홍*동", state: "can_clock_in", overtime: "no_record" });
     await clockIn(sql, { workerNumber: num, actor, now });
-    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T09:00:00"))).state).toBe("can_clock_out");
+    expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T09:00:00"))).state).toBe("working");
     await clockOut(sql, { workerNumber: num, actor, now: kst("2026-03-02T17:00:00") });
     expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T18:00:00"))).state).toBe("completed_today");
   });

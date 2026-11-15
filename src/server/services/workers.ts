@@ -5,6 +5,7 @@ import { blindIndex, decryptField, encryptField } from "../crypto";
 import { badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
 import { normalizePhone } from "@/lib/format";
+import { autoClockOut } from "./attendance";
 
 const money = z.number().int().min(0).max(100_000_000);
 
@@ -219,6 +220,7 @@ export async function revealSensitive(sql: Sql, id: string, field: "account" | "
 }
 
 export async function workerHistory(sql: Sql, id: string, limit = 100) {
+  await autoClockOut(sql, new Date(), id);
   const rows = await sql`
     SELECT r.id AS record_id, r.work_date::text AS work_date, r.clock_in_at, r.clock_out_at, r.source,
       dw.actual_wage, dw.extra_pay, dw.final_wage, dw.status

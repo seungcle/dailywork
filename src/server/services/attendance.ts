@@ -10,12 +10,14 @@ export type Actor = { kind: "kiosk"; deviceId: string } | { kind: "admin"; admin
 const MESSAGES = {
   WORKER_NOT_FOUND: "등록되지 않은 휴대폰 번호입니다.",
   WORKER_INACTIVE: "사용이 중지된 번호입니다. 관리자에게 문의해 주세요.",
-  ALREADY_CLOCKED_IN: "이미 출근 처리되었습니다. 퇴근을 먼저 해 주세요.",
+  ALREADY_CLOCKED_IN: "이미 출근 중입니다. 야근을 마쳤다면 야근 모드로 퇴근을 찍어 주세요.",
   OPEN_SHIFT_EXISTS: "이전 근무의 퇴근 기록이 없습니다. 관리자에게 문의해 주세요.",
   ALREADY_WORKED_TODAY: "오늘은 이미 출퇴근을 완료했습니다.",
   NOT_CLOCKED_IN: "출근 기록이 없어 퇴근할 수 없습니다.",
   SHIFT_TOO_LONG: "출근한 지 너무 오래되어 퇴근 처리할 수 없습니다. 관리자에게 문의해 주세요.",
   RECORD_CONFIRMED: "정산이 확정된 날짜입니다. 관리자에게 문의해 주세요.",
+  NO_RECORD_FOR_OVERTIME: "오늘 출근 기록이 없어 야근을 기록할 수 없습니다.",
+  OVERTIME_TOO_EARLY: "야근 기록은 18시 이후에 할 수 있습니다.",
 } as const;
 export type AttendanceErrorCode = keyof typeof MESSAGES;
 
@@ -44,6 +46,27 @@ async function findOpen(t: Sql, workerId: string, now: Date, maxHours: number) {
     FROM work_records
     WHERE worker_id = ${workerId} AND clock_in_at IS NOT NULL AND clock_out_at IS NULL AND deleted_at IS NULL`;
   return row;
+}
+
+/** 자동 퇴근 시각(한국 시간). 이 시각 전에 출근한 사람은 이 시각에 퇴근한 것으로 본다. */
+export const AUTO_CLOCK_OUT_HOUR = 18;
+// 근무일의 18:00(한국 시간)을 timestamptz로 만드는 SQL 조각
+const AUTO_OUT_AT = `((r.work_date::timestamp + make_interval(hours => ${AUTO_CLOCK_OUT_HOUR})) AT TIME ZONE 'Asia/Seoul')`;
+
+/**
+ * 18:00이 지났는데 퇴근 기록이 없는 근무를 그날 18:00 퇴근으로 채운다.
+ * 18:00 이후에 출근한 기록은 건드리지 않는다(야근 모드로 퇴근을 찍는다).
+ * 출퇴근·조회 때마다 불러도 결과가 같다.
+ */
+export async function autoClockOut(sql: Sql, now: Date = new Date(), workerId?: string) {
+  const rows = await sql<{ id: string }[]>`
+    UPDATE work_records r SET clock_out_at = ${sql.unsafe(AUTO_OUT_AT)}, clock_out_auto = true
+    WHERE r.clock_in_at IS NOT NULL AND r.clock_out_at IS NULL AND r.deleted_at IS NULL
+      AND (${workerId == null} OR r.worker_id = ${workerId ?? "00000000-0000-0000-0000-000000000000"}::uuid)
+      AND r.clock_in_at < ${sql.unsafe(AUTO_OUT_AT)}
+      AND ${now}::timestamptz >= ${sql.unsafe(AUTO_OUT_AT)}
+    RETURNING r.id`;
+  return rows.length;
 }
 
 const kst = (t: Sql, now: Date) => t<{ d: string }[]>`SELECT (${now}::timestamptz AT TIME ZONE 'Asia/Seoul')::date::text AS d`.then((r) => r[0].d);
@@ -84,6 +107,7 @@ export async function clockIn(sql: Sql, input: { workerNumber: number; actor: Ac
   return withRejectionLog(sql, "clock_in", input.workerNumber, input.actor, () => tx(sql, async (t) => {
     const w = await lockWorker(t, input.workerNumber);
     const now = input.now ?? new Date();
+    await autoClockOut(t, now, w.id);
     const workDate = await kst(t, now);
     const maxHours = await getMaxShiftHours(t);
     const open = await findOpen(t, w.id, now, maxHours);
@@ -123,54 +147,93 @@ export async function clockOut(sql: Sql, input: { workerNumber: number; actor: A
     if (!open) throw new AttendanceError("NOT_CLOCKED_IN");
     if (open.over_limit) throw new AttendanceError("SHIFT_TOO_LONG");
     const deviceId = input.actor.kind === "kiosk" ? input.actor.deviceId : null;
-    await t`UPDATE work_records SET clock_out_at = ${now}, clock_out_device_id = ${deviceId} WHERE id = ${open.id}`;
+    await t`UPDATE work_records SET clock_out_at = ${now}, clock_out_auto = false, clock_out_device_id = ${deviceId} WHERE id = ${open.id}`;
     await logEvent(t, { workerId: w.id, workerNumber: w.worker_number, recordId: open.id, type: "clock_out", outcome: "success", actor: input.actor, at: now });
     return { recordId: open.id, workDate: open.work_date, at: now, workerName: w.name, workerNumber: w.worker_number };
   }));
 }
 
-/** 키오스크 출퇴근. 없는 번호로 시도한 것도 거절 이력에 남긴다. */
-export async function clockByPhone(sql: Sql, input: { phone: string; action: "clock_in" | "clock_out"; actor: Actor; now?: Date }) {
+type LatestRow = { id: string; work_date: string; clock_in_at: Date; status: string; overtime_from: Date };
+
+/** 최근 24시간 안에 출근한 기록(야근 퇴근을 찍을 대상). 자정을 넘긴 야근도 전날 기록을 찾는다. */
+async function latestShift(t: Sql, workerId: string, now: Date) {
+  const [r] = await t<LatestRow[]>`
+    SELECT r.id, r.work_date::text AS work_date, r.clock_in_at, dw.status, ${t.unsafe(AUTO_OUT_AT)} AS overtime_from
+    FROM work_records r JOIN daily_wages dw ON dw.work_record_id = r.id
+    WHERE r.worker_id = ${workerId} AND r.clock_in_at IS NOT NULL AND r.deleted_at IS NULL
+      AND r.clock_in_at <= ${now}::timestamptz AND r.clock_in_at > ${now}::timestamptz - interval '24 hours'
+    ORDER BY r.clock_in_at DESC LIMIT 1`;
+  return r;
+}
+
+/**
+ * 야근 퇴근 기록. 18:00 이후 키오스크 야근 모드에서 찍은 시각을 퇴근 시각으로 저장한다
+ * (18:00 자동 퇴근이 이미 들어가 있으면 덮어쓴다).
+ */
+export async function recordOvertime(sql: Sql, input: { workerNumber: number; actor: Actor; now?: Date }): Promise<ClockResult> {
+  return withRejectionLog(sql, "clock_out", input.workerNumber, input.actor, () => tx(sql, async (t) => {
+    const w = await lockWorker(t, input.workerNumber);
+    const now = input.now ?? new Date();
+    const shift = await latestShift(t, w.id, now);
+    if (!shift) throw new AttendanceError("NO_RECORD_FOR_OVERTIME");
+    if (shift.status === "confirmed") throw new AttendanceError("RECORD_CONFIRMED");
+    if (now < shift.overtime_from) throw new AttendanceError("OVERTIME_TOO_EARLY");
+    const deviceId = input.actor.kind === "kiosk" ? input.actor.deviceId : null;
+    await t`UPDATE work_records SET clock_out_at = ${now}, clock_out_auto = false, clock_out_device_id = ${deviceId} WHERE id = ${shift.id}`;
+    await logEvent(t, { workerId: w.id, workerNumber: w.worker_number, recordId: shift.id, type: "clock_out", outcome: "success", actor: input.actor, at: now });
+    return { recordId: shift.id, workDate: shift.work_date, at: now, workerName: w.name, workerNumber: w.worker_number };
+  }));
+}
+
+/** 키오스크 출근·야근 퇴근. 없는 번호로 시도한 것도 거절 이력에 남긴다. 평소 퇴근은 18:00에 자동으로 들어간다. */
+export async function clockByPhone(sql: Sql, input: { phone: string; action: "clock_in" | "overtime"; actor: Actor; now?: Date }) {
   const [w] = await sql<{ worker_number: number }[]>`SELECT worker_number FROM workers WHERE phone = ${input.phone}`;
   if (!w) {
-    await logEvent(sql, { type: input.action, outcome: "rejected", rejectCode: "WORKER_NOT_FOUND", actor: input.actor });
+    await logEvent(sql, { type: input.action === "clock_in" ? "clock_in" : "clock_out", outcome: "rejected", rejectCode: "WORKER_NOT_FOUND", actor: input.actor });
     throw new AttendanceError("WORKER_NOT_FOUND");
   }
-  const run = input.action === "clock_in" ? clockIn : clockOut;
+  const run = input.action === "clock_in" ? clockIn : recordOvertime;
   return run(sql, { workerNumber: w.worker_number, actor: input.actor, now: input.now });
 }
 
-export type KioskState = "can_clock_in" | "can_clock_out" | "completed_today" | "needs_admin";
+/** working: 출근해 있음(18:00에 자동 퇴근), completed_today: 오늘 근무가 끝남 */
+export type KioskState = "can_clock_in" | "working" | "completed_today" | "needs_admin";
+/** 야근 모드에서 기록할 수 있는지: ok, 출근 기록 없음, 18시 전, 정산 확정됨 */
+export type OvertimeState = "ok" | "no_record" | "too_early" | "confirmed";
 
 /** 번호 확인 화면용. 이름은 가려서 내려 주고 민감정보는 포함하지 않는다. */
 export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) {
   const [w] = await sql<WorkerRow[]>`SELECT id, worker_number, name, is_active, base_daily_wage FROM workers WHERE phone = ${phone}`;
   if (!w) throw new AttendanceError("WORKER_NOT_FOUND");
   if (!w.is_active) throw new AttendanceError("WORKER_INACTIVE");
+  await autoClockOut(sql, now, w.id);
   const open = await findOpen(sql, w.id, now, await getMaxShiftHours(sql));
   let state: KioskState = "can_clock_in";
-  if (open) state = open.over_limit ? "needs_admin" : "can_clock_out";
+  if (open) state = open.over_limit ? "needs_admin" : "working";
   else {
     const workDate = await kst(sql, now);
     const [today] = await sql`SELECT 1 FROM work_records WHERE worker_id = ${w.id} AND work_date = ${workDate} AND clock_in_at IS NOT NULL AND deleted_at IS NULL`;
     if (today) state = "completed_today";
   }
-  return { maskedName: maskName(w.name), state };
+  const shift = await latestShift(sql, w.id, now);
+  const overtime: OvertimeState = !shift ? "no_record" : shift.status === "confirmed" ? "confirmed" : now < shift.overtime_from ? "too_early" : "ok";
+  return { maskedName: maskName(w.name), state, overtime };
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────
 export type DailyRow = {
   record_id: string; worker_id: string; worker_number: number; name: string; phone: string | null;
-  work_date: string; clock_in_at: Date | null; clock_out_at: Date | null; source: string; note: string;
+  work_date: string; clock_in_at: Date | null; clock_out_at: Date | null; clock_out_auto: boolean; source: string; note: string;
   base_wage: number; actual_wage: number; extra_pay: number; final_wage: number; wage_note: string; wage_status: "pending" | "confirmed";
   attendance_status: "scheduled" | "working" | "done" | "missing_out";
 };
 
 export async function getDaily(sql: Sql, date: string) {
+  await autoClockOut(sql);
   const maxHours = await getMaxShiftHours(sql);
   const rows = await sql<DailyRow[]>`
     SELECT r.id AS record_id, w.id AS worker_id, w.worker_number, w.name, w.phone, r.work_date::text AS work_date,
-      r.clock_in_at, r.clock_out_at, r.source, r.note,
+      r.clock_in_at, r.clock_out_at, r.clock_out_auto, r.source, r.note,
       dw.base_wage, dw.actual_wage, dw.extra_pay, dw.final_wage, dw.note AS wage_note, dw.status AS wage_status,
       CASE WHEN r.clock_in_at IS NULL THEN 'scheduled'
            WHEN r.clock_out_at IS NOT NULL THEN 'done'
@@ -266,7 +329,7 @@ export async function correctRecord(sql: Sql, input: {
     if (!r) throw notFound("근무 기록을 찾을 수 없습니다.");
     if (r.status === "confirmed") throw conflict("RECORD_CONFIRMED", "정산이 확정된 기록입니다. 확정을 해제한 뒤 수정해 주세요.");
     assertTimes(r.work_date, input.clockInAt, input.clockOutAt);
-    await t`UPDATE work_records SET clock_in_at = ${input.clockInAt}, clock_out_at = ${input.clockOutAt} WHERE id = ${r.id}`;
+    await t`UPDATE work_records SET clock_in_at = ${input.clockInAt}, clock_out_at = ${input.clockOutAt}, clock_out_auto = false WHERE id = ${r.id}`;
     await logEvent(t, { workerId: r.worker_id, workerNumber: r.worker_number, recordId: r.id, type: "correction", outcome: "success", actor: { kind: "admin", adminId: input.adminId } });
     await audit(t, {
       administratorId: input.adminId, action: "attendance.correct", targetType: "work_record", targetId: r.id, reason: input.reason.trim(),

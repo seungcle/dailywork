@@ -2,6 +2,7 @@ import type { Sql } from "../db";
 import { tx } from "../db";
 import { audit } from "../audit";
 import { badRequest, conflict, notFound, pgCode } from "../errors";
+import { autoClockOut } from "./attendance";
 
 /** 날짜별 일당 수정. 확정된 일당은 해제 전까지 바꿀 수 없다. */
 export async function updateWage(sql: Sql, input: {
@@ -37,6 +38,7 @@ export type SettlementRow = {
 
 /** 기간별 근무자 집계. 근무일은 출근한 날(work_date) 기준이다. */
 export async function settlementReport(sql: Sql, from: string, to: string) {
+  await autoClockOut(sql); // 18:00이 지난 근무는 퇴근이 채워진 상태로 보여 주고 확정한다
   if (from > to) throw badRequest("시작일이 종료일보다 늦습니다.");
   const rows = await sql<SettlementRow[]>`
     SELECT w.id AS worker_id, w.phone, w.name,
@@ -61,6 +63,7 @@ export async function settlementReport(sql: Sql, from: string, to: string) {
 }
 
 export async function settlementDetails(sql: Sql, from: string, to: string, workerId: string) {
+  await autoClockOut(sql); // 18:00이 지난 근무는 퇴근이 채워진 상태로 보여 주고 확정한다
   return sql`
     SELECT r.id AS record_id, r.work_date::text AS work_date, r.clock_in_at, r.clock_out_at, r.source,
       dw.base_wage, dw.actual_wage, dw.extra_pay, dw.final_wage, dw.note AS wage_note, dw.status, dw.confirmed_at
@@ -73,6 +76,7 @@ export async function settlementDetails(sql: Sql, from: string, to: string, work
  * 기간 내 미확정 일당을 확정한다. 퇴근 누락이나 0원은 잘못 지급될 수 있어 건너뛰고 건수를 알려 준다.
  */
 export async function confirmWages(sql: Sql, input: { from: string; to: string; workerIds?: string[]; recordIds?: string[]; adminId: string }) {
+  await autoClockOut(sql); // 18:00이 지난 근무는 퇴근이 채워진 상태로 보여 주고 확정한다
   return tx(sql, async (t) => {
     const candidates = await t<{ record_id: string; open: boolean; final_wage: number }[]>`
       SELECT r.id AS record_id, (r.clock_in_at IS NOT NULL AND r.clock_out_at IS NULL) AS open, dw.final_wage

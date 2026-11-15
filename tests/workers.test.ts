@@ -178,7 +178,7 @@ describe("근무자 CRUD", () => {
 
     const b = await createWorker(sql, input({ ...full, name: "이을", phone: "010-2222-5555", accountNumber: "999999999999", rrn: "800101-2000000" }), adminId);
     const kiosk = await seedKiosk(adminId);
-    await clockByPhone(sql, { phone: "01022225555", action: "clock_out", actor: { kind: "kiosk", deviceId: kiosk.id } }).catch(() => {}); // 거절 이력만 남는다
+    await clockByPhone(sql, { phone: "01022225555", action: "overtime", actor: { kind: "kiosk", deviceId: kiosk.id } }).catch(() => {}); // 거절 이력만 남는다
     await expect(deleteWorker(sql, b.id, adminId)).rejects.toMatchObject({ code: "WORKER_HAS_RECORDS" });
   });
 
