@@ -85,7 +85,8 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, onSaved }: Pr
           <F id="w-account" label="계좌번호" hint={editing && hasAccount ? "변경할 때만 입력하세요." : undefined}>
             <Input id="w-account" inputMode="numeric" autoComplete="off" value={v.accountNumber} onChange={set("accountNumber")} onBlur={check} />
           </F>
-          <F id="w-holder" label="예금주"><Input id="w-holder" value={v.accountHolder} onChange={set("accountHolder")} /></F>
+          {/* 새로 등록할 때 예금주는 이름으로 자동 입력된다. 수정할 때만 따로 고칠 수 있다. */}
+          {editing && <F id="w-holder" label="예금주"><Input id="w-holder" value={v.accountHolder} onChange={set("accountHolder")} /></F>}
           <F id="w-rrn" label="주민등록번호"><Input id="w-rrn" autoComplete="off" placeholder="000000-0000000" value={v.rrn} onChange={set("rrn")} onBlur={check} /></F>
           <div className="col-span-2 space-y-1.5"><Label htmlFor="w-address">주소</Label><Input id="w-address" value={v.address} onChange={set("address")} /></div>
           <div className="col-span-2 space-y-1.5"><Label htmlFor="w-memo">메모</Label><Textarea id="w-memo" rows={2} value={v.memo} onChange={set("memo")} /></div>

@@ -157,6 +157,11 @@ describe("근무자 CRUD", () => {
     expect((await getWorker(sql, id)).address).toBe("");
   });
 
+  it("예금주를 비우면 이름에서 나이·괄호를 뺀 값으로 채운다", async () => {
+    const { id } = await createWorker(sql, input({ ...full, name: "김영순(정미) 61", accountHolder: "" }), adminId);
+    expect((await getWorker(sql, id)).account_holder).toBe("김영순");
+  });
+
   it("주소는 200자까지 받는다", () => {
     expect(workerInputSchema.safeParse({ ...full, address: "가".repeat(201) }).success).toBe(false);
   });

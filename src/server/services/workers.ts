@@ -4,7 +4,7 @@ import { tx } from "../db";
 import { blindIndex, decryptField, encryptField } from "../crypto";
 import { badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
-import { normalizePhone } from "@/lib/format";
+import { holderName, normalizePhone } from "@/lib/format";
 import { autoClockOut } from "./attendance";
 
 const money = z.number().int().min(0).max(100_000_000);
@@ -20,7 +20,8 @@ export const workerInputSchema = z.object({
   rrn: z.string().nullish().transform((v) => (v ? v.replace(/[^0-9]/g, "") : null)).refine((v) => v === null || /^[0-9]{13}$/.test(v), "주민등록번호는 13자리여야 합니다."),
   address: z.string().trim().max(200, "주소는 200자 이내로 입력해 주세요.").default(""),
   memo: z.string().max(1000).default(""),
-});
+  // 예금주를 따로 받지 않으면 근무자 이름(나이·괄호 표기를 뺀 것)으로 채운다.
+}).transform((i) => ({ ...i, accountHolder: i.accountHolder || (i.accountNumber ? holderName(i.name) : i.accountHolder) }));
 export type WorkerInput = z.output<typeof workerInputSchema>;
 
 export type WorkerListRow = {

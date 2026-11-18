@@ -6,7 +6,7 @@ import { formatPhone, formatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Lookup = {
-  maskedName: string;
+  name: string;
   state: "can_clock_in" | "working" | "completed_today" | "needs_admin";
   overtime: "ok" | "no_record" | "too_early" | "confirmed";
 };
@@ -106,8 +106,8 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await api<{ at: string; maskedName: string }>("/api/kiosk/attendance", { body: { phone, action } });
-      setScreen({ kind: "result", ok: true, action, name: r.maskedName, at: r.at });
+      const r = await api<{ at: string; name: string }>("/api/kiosk/attendance", { body: { phone, action } });
+      setScreen({ kind: "result", ok: true, action, name: r.name, at: r.at });
     } catch (e) { fail(e); } finally { setBusy(false); }
   }, [busy, fail]);
 
@@ -169,7 +169,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
           <div className="flex w-full max-w-3xl flex-col items-center gap-7 text-center">
             <div>
               <div className="text-lg text-blue-200 tabular-nums">{formatPhone(screen.phone)}</div>
-              <div className="mt-1 text-6xl font-bold">{screen.worker.maskedName} 님</div>
+              <div className="mt-1 text-6xl font-bold">{screen.worker.name} 님</div>
               <div className="mt-3 text-xl text-blue-100">본인이 맞으면 아래 버튼을 눌러 주세요.</div>
             </div>
             {(() => {

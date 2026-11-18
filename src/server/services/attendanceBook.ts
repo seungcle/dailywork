@@ -8,6 +8,7 @@ import { tx } from "../db";
 import { audit } from "../audit";
 import { badRequest } from "../errors";
 import { createWorker, workerInputSchema } from "./workers";
+import { holderName } from "@/lib/format";
 
 const MAX_IMPORT_BYTES = 4 * 1024 * 1024;
 
@@ -31,7 +32,7 @@ const BANK_ALIASES: Record<string, string> = {
 export const normalizeBank = (b: string) => BANK_ALIASES[b.replace(/\s/g, "")] ?? BANK_ALIASES[b.replace(/\s/g, "").toLowerCase()] ?? b.replace(/\s/g, "");
 
 /** "김영순(61)", "이미선 81", "김태욱(남)" → 예금주로 쓸 이름만 남긴다. */
-export const baseName = (name: string) => name.replace(/\(.*?\)/g, "").replace(/\d+/g, "").replace(/\s+/g, "").trim() || name.trim();
+export const baseName = holderName;
 
 function cellValue(v: ExcelJS.CellValue): unknown {
   if (v && typeof v === "object" && !(v instanceof Date)) {
