@@ -363,3 +363,12 @@ export async function recordHistory(sql: Sql, recordId: string) {
     WHERE l.target_type IN ('work_record', 'daily_wage') AND l.target_id = ${recordId}
     ORDER BY l.created_at DESC`;
 }
+
+/** 키오스크 상단 표시용: 오늘(한국 날짜) 출근을 찍은 근무자 수. 이름 등 개인 정보는 내주지 않는다. */
+export async function todayClockInCount(sql: Sql, now = new Date()) {
+  const workDate = await kst(sql, now);
+  const [{ count }] = await sql<{ count: number }[]>`
+    SELECT count(DISTINCT worker_id)::int AS count FROM work_records
+    WHERE work_date = ${workDate} AND clock_in_at IS NOT NULL AND deleted_at IS NULL`;
+  return { workDate, count };
+}

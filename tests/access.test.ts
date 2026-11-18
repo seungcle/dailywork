@@ -5,6 +5,7 @@ import { POST as setup } from "@/app/api/kiosk/setup/route";
 import { GET as session } from "@/app/api/kiosk/session/route";
 import { POST as lookup } from "@/app/api/kiosk/lookup/route";
 import { POST as attendance } from "@/app/api/kiosk/attendance/route";
+import { GET as today } from "@/app/api/kiosk/today/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { GET as adminWorkers } from "@/app/api/admin/workers/route";
 import { POST as adminAttendance } from "@/app/api/admin/attendance/route";
@@ -95,6 +96,17 @@ describe("비등록 키오스크 차단", () => {
     expect(res.status).toBe(200);
     expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "maskedName", "name"]);
     expect(await sql`SELECT 1 FROM work_records`).toHaveLength(1);
+  });
+
+  it("오늘 출근 인원은 등록된 기기에만 숫자로만 알려 준다", async () => {
+    expect((await today(request("/api/kiosk/today"), noParams)).status).toBe(401);
+    const k = await seedKiosk(adminId);
+    const cookies = kioskCookie(k.token);
+    expect(await (await today(request("/api/kiosk/today", { cookies }), noParams)).json()).toMatchObject({ count: 0 });
+    await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies }), noParams);
+    const body = await (await today(request("/api/kiosk/today", { cookies }), noParams)).json();
+    expect(body.count).toBe(1);
+    expect(Object.keys(body).sort()).toEqual(["count", "workDate"]);
   });
 
   it("등록되지 않은 번호는 거절하고 거절 이력을 남긴다", async () => {
