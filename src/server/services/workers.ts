@@ -102,7 +102,7 @@ async function mapPhoneConflict<T>(fn: () => Promise<T>) {
 
 function assertAccountComplete(i: WorkerInput) {
   const filled = [i.bankName, i.accountNumber, i.accountHolder].filter(Boolean).length;
-  if (filled > 0 && filled < 3) throw badRequest("은행명, 계좌번호, 예금주를 모두 입력해 주세요.");
+  if (filled > 0 && filled < 3) throw badRequest("은행명과 계좌번호를 모두 입력해 주세요.");
 }
 function rrnColumns(i: WorkerInput) {
   return i.rrn ? { enc: encryptField(i.rrn), hash: blindIndex(i.rrn) } : null;
@@ -163,16 +163,14 @@ export async function updateWorker(sql: Sql, id: string, input: WorkerInput, adm
     await assertPhoneFree(t, input.phone, id);
     const accountChanging = !!input.accountNumber;
     if (accountChanging) assertAccountComplete(input);
-    else if (input.bankName || input.accountHolder) {
-      if (!before.account_last4) throw badRequest("은행명, 계좌번호, 예금주를 모두 입력해 주세요.");
-      if (!input.bankName || !input.accountHolder) throw badRequest("은행명과 예금주를 모두 입력해 주세요.");
-    }
+    else if (input.bankName && !before.account_last4) throw badRequest("은행명과 계좌번호를 모두 입력해 주세요.");
     await t`UPDATE workers SET name = ${input.name}, phone = ${input.phone}, base_daily_wage = ${input.baseDailyWage}, address = ${input.address}, memo = ${input.memo},
               rrn_enc = COALESCE(${rrn?.enc ?? null}, rrn_enc), rrn_hash = COALESCE(${rrn?.hash ?? null}, rrn_hash)
             WHERE id = ${id}`;
     if (accountChanging) await replaceAccount(t, id, input);
-    else if (input.bankName && input.accountHolder) {
-      await t`UPDATE worker_payment_accounts SET bank_name = ${input.bankName}, account_holder = ${input.accountHolder} WHERE worker_id = ${id} AND is_current`;
+    // 계좌번호 없이 은행명만 바꾸면 은행명만 고친다. 예금주는 화면에서 받지 않으므로 그대로 둔다.
+    else if (input.bankName) {
+      await t`UPDATE worker_payment_accounts SET bank_name = ${input.bankName} WHERE worker_id = ${id} AND is_current`;
     }
     await audit(t, {
       administratorId: adminId, action: "worker.update", targetType: "worker", targetId: id,
