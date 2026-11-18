@@ -195,7 +195,7 @@ describe("근무자 상태", () => {
     await sql`UPDATE workers SET name = '홍길동' WHERE id = ${workerId}`;
     const now = kst("2026-03-02T08:00:00");
     const a = await lookupForKiosk(sql, PHONE, now);
-    expect(a).toEqual({ name: "홍길동", state: "can_clock_in", overtime: "no_record" });
+    expect(a).toEqual({ name: "홍길동", maskedName: "홍길동", state: "can_clock_in", overtime: "no_record" });
     await clockIn(sql, { workerNumber: num, actor, now });
     expect((await lookupForKiosk(sql, PHONE, kst("2026-03-02T09:00:00"))).state).toBe("working");
     await clockOut(sql, { workerNumber: num, actor, now: kst("2026-03-02T17:00:00") });

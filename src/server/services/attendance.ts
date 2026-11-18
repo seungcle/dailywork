@@ -216,7 +216,8 @@ export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) 
   }
   const shift = await latestShift(sql, w.id, now);
   const overtime: OvertimeState = !shift ? "no_record" : shift.status === "confirmed" ? "confirmed" : now < shift.overtime_from ? "too_early" : "ok";
-  return { name: w.name, state, overtime };
+  // maskedName은 배포 전부터 열려 있던 키오스크 화면이 읽는 이름 칸이다. 그 화면에도 이름 전체가 보이도록 같은 값을 함께 준다.
+  return { name: w.name, maskedName: w.name, state, overtime };
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────

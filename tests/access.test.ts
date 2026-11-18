@@ -83,7 +83,7 @@ describe("비등록 키오스크 차단", () => {
     const text = await res.text();
     expect(JSON.parse(text).name).toBe("홍길동");
     expect(text).not.toContain(PHONE.slice(3));
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["name", "overtime", "state"]);
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "name", "overtime", "state"]);
   });
 
   it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
@@ -93,7 +93,7 @@ describe("비등록 키오스크 차단", () => {
     expect(found.status).toBe(200);
     const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies }), noParams);
     expect(res.status).toBe(200);
-    expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "name"]);
+    expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "maskedName", "name"]);
     expect(await sql`SELECT 1 FROM work_records`).toHaveLength(1);
   });
 

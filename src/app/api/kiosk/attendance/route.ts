@@ -10,5 +10,5 @@ const schema = z.object({ phone: kioskPhone, action: z.enum(["clock_in", "overti
 export const POST = kioskRoute(async ({ req, sql, device }) => {
   const body = await parseBody(req, schema);
   const r = await clockByPhone(sql, { phone: body.phone, action: body.action, actor: { kind: "kiosk", deviceId: device.id } });
-  return { action: body.action, at: r.at, name: r.workerName };
+  return { action: body.action, at: r.at, name: r.workerName, maskedName: r.workerName };
 });
