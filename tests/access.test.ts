@@ -76,13 +76,14 @@ describe("비등록 키오스크 차단", () => {
     expect(res.status).toBe(403);
   });
 
-  it("응답에 전체 이름·전화번호·계좌 정보를 포함하지 않는다", async () => {
+  it("응답에는 이름만 그대로 담고 전화번호·계좌 정보는 담지 않는다", async () => {
     const k = await seedKiosk(adminId);
     await sql`UPDATE workers SET name = '홍길동' WHERE phone = ${PHONE}`;
     const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies: kioskCookie(k.token) }), noParams);
     const text = await res.text();
-    expect(text).not.toContain("홍길동");
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "overtime", "state"]);
+    expect(JSON.parse(text).name).toBe("홍길동");
+    expect(text).not.toContain(PHONE.slice(3));
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["name", "overtime", "state"]);
   });
 
   it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
@@ -92,7 +93,7 @@ describe("비등록 키오스크 차단", () => {
     expect(found.status).toBe(200);
     const res = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone: PHONE, action: "clock_in" }, cookies }), noParams);
     expect(res.status).toBe(200);
-    expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "maskedName"]);
+    expect(Object.keys(await res.json()).sort()).toEqual(["action", "at", "name"]);
     expect(await sql`SELECT 1 FROM work_records`).toHaveLength(1);
   });
 

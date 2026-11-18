@@ -157,6 +157,17 @@ describe("근무자 CRUD", () => {
     expect((await getWorker(sql, id)).address).toBe("");
   });
 
+  it("예금주를 비우면 이름에서 나이·괄호를 뺀 값으로 채운다", async () => {
+    const { id } = await createWorker(sql, input({ ...full, name: "김영순(정미) 61", accountHolder: "" }), adminId);
+    expect((await getWorker(sql, id)).account_holder).toBe("김영순");
+  });
+
+  it("예금주 없이 은행명만 바꿀 수 있고, 예금주는 그대로 둔다", async () => {
+    const { id } = await createWorker(sql, input(full), adminId);
+    await updateWorker(sql, id, input({ ...full, bankName: "국민", accountNumber: "", accountHolder: "" }), adminId);
+    expect(await getWorker(sql, id)).toMatchObject({ bank_name: "국민", account_last4: "7891", account_holder: "홍길동" });
+  });
+
   it("주소는 200자까지 받는다", () => {
     expect(workerInputSchema.safeParse({ ...full, address: "가".repeat(201) }).success).toBe(false);
   });

@@ -2,7 +2,6 @@ import type { Sql } from "../db";
 import { tx } from "../db";
 import { AppError, badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
-import { maskName } from "@/lib/format";
 import { getMaxShiftHours } from "./settings";
 
 export type Actor = { kind: "kiosk"; deviceId: string } | { kind: "admin"; adminId: string };
@@ -217,7 +216,7 @@ export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) 
   }
   const shift = await latestShift(sql, w.id, now);
   const overtime: OvertimeState = !shift ? "no_record" : shift.status === "confirmed" ? "confirmed" : now < shift.overtime_from ? "too_early" : "ok";
-  return { maskedName: maskName(w.name), state, overtime };
+  return { name: w.name, state, overtime };
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────

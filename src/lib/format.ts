@@ -60,12 +60,9 @@ export function formatRrn(r: string | null | undefined) {
   if (!r) return "-";
   return r.length === 13 ? `${r.slice(0, 6)}-${r.slice(6)}` : r;
 }
-/** 키오스크 화면용 이름 가림: 홍길동 → 홍*동, 이산 → 이* */
-export function maskName(name: string) {
-  const c = [...name.trim()];
-  if (c.length <= 1) return name;
-  if (c.length === 2) return `${c[0]}*`;
-  return `${c[0]}${"*".repeat(c.length - 2)}${c[c.length - 1]}`;
+/** 예금주로 쓸 이름: "김영순(61)", "이미선 81", "김태욱(남)" → 괄호·숫자·공백을 뺀 이름 */
+export function holderName(name: string) {
+  return name.replace(/\(.*?\)/g, "").replace(/\d+/g, "").replace(/\s+/g, "").trim() || name.trim();
 }
 export function addDays(date: string, days: number) {
   const d = new Date(`${date}T00:00:00Z`);

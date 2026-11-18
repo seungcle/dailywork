@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { formatPhone, formatPhoneInput, parseMoney } from "@/lib/format";
 
-export type WorkerFormValue = { name: string; phone: string; baseDailyWage: string; bankName: string; accountNumber: string; accountHolder: string; rrn: string; address: string; memo: string };
-const EMPTY: WorkerFormValue = { name: "", phone: "", baseDailyWage: "", bankName: "", accountNumber: "", accountHolder: "", rrn: "", address: "", memo: "" };
+export type WorkerFormValue = { name: string; phone: string; baseDailyWage: string; bankName: string; accountNumber: string; rrn: string; address: string; memo: string };
+const EMPTY: WorkerFormValue = { name: "", phone: "", baseDailyWage: "", bankName: "", accountNumber: "", rrn: "", address: "", memo: "" };
 type Candidate = { id: string; name: string; phone: string | null; is_active: boolean; reasons: string[]; strong: boolean };
 
 type Props = {
@@ -48,7 +48,7 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, onSaved }: Pr
     if (wage === null) { setError("기본 일당은 숫자로 입력해 주세요."); return; }
     const worker = {
       name: v.name, phone: v.phone || null, baseDailyWage: wage, bankName: v.bankName || null, accountNumber: v.accountNumber || null,
-      accountHolder: v.accountHolder || null, rrn: v.rrn || null, address: v.address, memo: v.memo,
+      rrn: v.rrn || null, address: v.address, memo: v.memo,
     };
     setBusy(true); setError(null);
     try {
@@ -85,7 +85,6 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, onSaved }: Pr
           <F id="w-account" label="계좌번호" hint={editing && hasAccount ? "변경할 때만 입력하세요." : undefined}>
             <Input id="w-account" inputMode="numeric" autoComplete="off" value={v.accountNumber} onChange={set("accountNumber")} onBlur={check} />
           </F>
-          <F id="w-holder" label="예금주"><Input id="w-holder" value={v.accountHolder} onChange={set("accountHolder")} /></F>
           <F id="w-rrn" label="주민등록번호"><Input id="w-rrn" autoComplete="off" placeholder="000000-0000000" value={v.rrn} onChange={set("rrn")} onBlur={check} /></F>
           <div className="col-span-2 space-y-1.5"><Label htmlFor="w-address">주소</Label><Input id="w-address" value={v.address} onChange={set("address")} /></div>
           <div className="col-span-2 space-y-1.5"><Label htmlFor="w-memo">메모</Label><Textarea id="w-memo" rows={2} value={v.memo} onChange={set("memo")} /></div>

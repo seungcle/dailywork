@@ -14,7 +14,7 @@ import { api } from "@/lib/api";
 import { formatClock, formatDateTime, formatPhone, formatRrn, formatWon } from "@/lib/format";
 
 type Detail = {
-  worker: { id: string; worker_number: number; name: string; phone: string | null; base_daily_wage: number; is_active: boolean; address: string; memo: string; created_at: string; last_work_date: string | null; bank_name: string | null; account_last4: string | null; account_holder: string | null; rrn: string | null };
+  worker: { id: string; worker_number: number; name: string; phone: string | null; base_daily_wage: number; is_active: boolean; address: string; memo: string; created_at: string; last_work_date: string | null; bank_name: string | null; account_last4: string | null; rrn: string | null };
   rows: { record_id: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null; source: string; actual_wage: number; extra_pay: number; final_wage: number; status: string }[];
   totals: { work_days: number; total_wage: number; confirmed_wage: number };
 };
@@ -61,7 +61,7 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
           <Item label="계좌">
             {w.account_last4 ? (
               <span className="inline-flex items-center gap-2">
-                {w.bank_name} {account ?? `••••${w.account_last4}`} ({w.account_holder})
+                {w.bank_name} {account ?? `••••${w.account_last4}`}
                 <Button variant="ghost" size="icon-xs" aria-label={account ? "계좌번호 가리기" : "계좌번호 보기"} title="조회 이력이 남습니다" onClick={toggleAccount}>{account ? <EyeOff className="size-3" /> : <Eye className="size-3" />}</Button>
               </span>
             ) : <span className="text-amber-700">미등록</span>}
@@ -91,7 +91,7 @@ export default function WorkerDetailPage({ params }: { params: Promise<{ id: str
         )}
       </Panel>
       <WorkerFormDialog open={editOpen} onOpenChange={setEditOpen} workerId={w.id} hasAccount={!!w.account_last4}
-        initial={{ name: w.name, phone: w.phone ?? "", baseDailyWage: String(w.base_daily_wage), bankName: w.bank_name ?? "", accountHolder: w.account_holder ?? "", rrn: w.rrn ? formatRrn(w.rrn) : "", address: w.address, memo: w.memo }}
+        initial={{ name: w.name, phone: w.phone ?? "", baseDailyWage: String(w.base_daily_wage), bankName: w.bank_name ?? "", rrn: w.rrn ? formatRrn(w.rrn) : "", address: w.address, memo: w.memo }}
         onSaved={() => { setAccount(null); void reload(); }} />
       <ConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} destructive title="근무자 삭제" confirmLabel="삭제"
         description={`${w.name} 님의 정보와 계좌를 지웁니다. 되돌릴 수 없습니다. 출근 기록이 있는 근무자는 삭제되지 않으니 비활성화를 사용하세요.`}
