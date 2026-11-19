@@ -55,12 +55,34 @@ function Clock() {
   );
 }
 
+const COUNT_REFRESH_MS = 30_000;
+const kstHour = (iso: string) => Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", hour: "numeric", hourCycle: "h23" }).format(new Date(iso)));
+
+/** 오늘 출근한 인원. 30초마다, 그리고 누가 출근을 찍을 때마다 새로 읽는다. 못 읽으면 직전 숫자를 그대로 둔다. */
+function TodayCount({ refreshKey }: { refreshKey: number }) {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api<{ count: number }>("/api/kiosk/today").then((r) => { if (alive) setCount(r.count); }).catch(() => { /* 다음 주기에 다시 읽는다 */ });
+    void load();
+    const t = setInterval(load, COUNT_REFRESH_MS);
+    return () => { alive = false; clearInterval(t); };
+  }, [refreshKey]);
+  return (
+    <div className="rounded-xl bg-white/10 px-5 py-2 text-center">
+      <div className="text-sm text-blue-200">오늘 출근</div>
+      <div className="text-3xl font-bold tabular-nums">{count ?? "-"}<span className="ml-1 text-xl font-semibold">명</span></div>
+    </div>
+  );
+}
+
 export function KioskScreen({ deviceName }: { deviceName: string }) {
   const [digits, setDigits] = useState("");
   const [screen, setScreen] = useState<Screen>({ kind: "input" });
   const [busy, setBusy] = useState(false);
   // 야근 모드: 18시 이후 일을 마친 사람이 실제 퇴근 시각을 찍는다. 한 번 쓰고 나면 평소 모드로 돌아간다.
   const [overtime, setOvertime] = useState(false);
+  const [recorded, setRecorded] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback(() => { setDigits(""); setOvertime(false); setScreen({ kind: "input" }); }, []);
@@ -108,6 +130,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
     try {
       const r = await api<{ at: string; name: string }>("/api/kiosk/attendance", { body: { phone, action } });
       setScreen({ kind: "result", ok: true, action, name: r.name, at: r.at });
+      setRecorded((n) => n + 1);
     } catch (e) { fail(e); } finally { setBusy(false); }
   }, [busy, fail]);
 
@@ -140,7 +163,10 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
             <Moon className="size-6" />{overtime ? "야근 모드 끄기" : "야근 모드"}
           </button>
         )}
-        <Clock />
+        <div className="flex items-center gap-6">
+          <TodayCount refreshKey={recorded} />
+          <Clock />
+        </div>
       </header>
 
       <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-6 pb-6">
@@ -198,7 +224,13 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
               <>
                 <div className="text-5xl font-bold">{screen.action === "clock_in" ? "출근 완료" : "야근 퇴근 완료"}</div>
                 <div className="text-3xl">{screen.name} 님 · {formatTime(screen.at)}</div>
-                {screen.action === "clock_in" && <div className="text-xl opacity-90">퇴근은 18시에 자동으로 기록됩니다. 야근하면 일이 끝난 뒤 야근 모드로 찍어 주세요.</div>}
+                {screen.action === "clock_in" && (
+                  <div className="text-xl opacity-90">
+                    {kstHour(screen.at) < 18
+                      ? "퇴근은 18시에 자동으로 기록됩니다. 야근하면 일이 끝난 뒤 야근 모드로 찍어 주세요."
+                      : "18시 이후 출근은 자동 퇴근이 없습니다. 일이 끝나면 야근 모드로 퇴근을 찍어 주세요."}
+                  </div>
+                )}
               </>
             ) : (
               <>
