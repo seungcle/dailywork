@@ -19,13 +19,17 @@ export async function setDefaultDailyWage(sql: Sql, wage: number, adminId: strin
     const before = await getDefaultDailyWage(t);
     await t`INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('default_daily_wage', ${t.json(wage)}, ${adminId}, now())
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+    // 되돌릴 수 있도록 바뀐 근무자의 원래 일당을 감사 로그에 남긴다.
     const changed = opts.applyToAll
-      ? (await t`UPDATE workers SET base_daily_wage = ${wage} WHERE base_daily_wage <> ${wage}`).count
-      : 0;
+      ? await t<{ id: string; previous: number }[]>`
+          UPDATE workers w SET base_daily_wage = ${wage} FROM workers old
+          WHERE w.id = old.id AND w.base_daily_wage <> ${wage} RETURNING w.id, old.base_daily_wage AS previous`
+      : [];
     await audit(t, {
       administratorId: adminId, action: "settings.default_daily_wage", targetType: "app_settings", targetId: "default_daily_wage",
-      before: { default_daily_wage: before }, after: { default_daily_wage: wage, applied_to_all: opts.applyToAll, workers_changed: changed },
+      before: { default_daily_wage: before, workers: changed },
+      after: { default_daily_wage: wage, applied_to_all: opts.applyToAll, workers_changed: changed.length },
     });
-    return { defaultDailyWage: wage, workersChanged: changed };
+    return { defaultDailyWage: wage, workersChanged: changed.length };
   });
 }

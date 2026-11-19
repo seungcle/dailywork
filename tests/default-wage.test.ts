@@ -38,6 +38,8 @@ describe("기본 일당 설정", () => {
     expect((await res.json()).workersChanged).toBe(2);
     expect(await wages()).toEqual([96700, 96700, 96700]);
     expect(await sql`SELECT base_wage, actual_wage FROM daily_wages`).toEqual(before);
+    const [log] = await sql<{ before: { workers: { previous: number }[] } }[]>`SELECT before FROM audit_logs WHERE action = 'settings.default_daily_wage'`;
+    expect(log.before.workers.map((w) => w.previous).sort()).toEqual([120000, 150000]);
   });
 
   it("음수나 숫자가 아닌 값은 거절한다", async () => {
