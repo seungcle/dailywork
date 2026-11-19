@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,6 +32,14 @@ function WorkerForm({ onOpenChange, workerId, initial, hasAccount, onSaved }: Pr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editing = !!workerId;
+
+  // 신규 등록이면 설정의 기본 일당을 미리 채운다. 그 사이 직접 입력한 값은 덮지 않는다.
+  useEffect(() => {
+    if (editing) return;
+    api<{ defaultDailyWage: number }>("/api/admin/settings")
+      .then((r) => { if (r.defaultDailyWage) setV((x) => (x.baseDailyWage ? x : { ...x, baseDailyWage: String(r.defaultDailyWage) })); })
+      .catch(() => { /* 못 불러오면 빈칸으로 둔다 */ });
+  }, [editing]);
 
   const set = (k: keyof WorkerFormValue) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setBlocked(false); setV((x) => ({ ...x, [k]: e.target.value })); };
 
