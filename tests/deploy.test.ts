@@ -7,7 +7,7 @@ const POOLER = "postgres://postgres.abc:pw@aws-0-ap-northeast-2.pooler.supabase.
 const levels = (r: { level: string }[]) => r.map((x) => x.level);
 
 describe("Supabase 공개 API 차단", () => {
-  const TABLES = ["administrators", "admin_sessions", "workers", "worker_payment_accounts", "kiosk_devices", "kiosk_sessions", "work_records", "daily_wages", "attendance_events", "audit_logs", "app_settings", "rate_limits", "schema_migrations"];
+  const TABLES = ["administrators", "admin_sessions", "workers", "worker_payment_accounts", "kiosk_devices", "kiosk_sessions", "work_records", "daily_wages", "daily_wage_rates", "attendance_events", "audit_logs", "app_settings", "rate_limits", "schema_migrations"];
 
   for (const role of ["anon", "authenticated"]) {
     it(`${role} 역할은 어떤 테이블도 읽거나 쓸 수 없다`, async () => {
