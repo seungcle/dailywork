@@ -8,7 +8,7 @@ export const sql = getSql();
 
 export async function resetDb() {
   await sql`TRUNCATE administrators, admin_sessions, workers, worker_payment_accounts, kiosk_devices, kiosk_sessions,
-            work_records, daily_wages, attendance_events, audit_logs, rate_limits CASCADE`;
+            work_records, daily_wages, daily_wage_rates, attendance_events, audit_logs, rate_limits CASCADE`;
   await sql`UPDATE app_settings SET value = '24' WHERE key = 'max_shift_hours'`;
   await sql`DELETE FROM app_settings WHERE key = 'default_daily_wage'`;
 }

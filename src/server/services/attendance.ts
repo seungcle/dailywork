@@ -99,6 +99,35 @@ async function withRejectionLog<T>(sql: Sql, type: "clock_in" | "clock_out", wor
   }
 }
 
+/** 그날 일당을 정해 두었으면 그 금액, 아니면 근무자의 기본 일당. */
+async function wageFor(sql: Sql, workDate: string, baseDailyWage: number) {
+  const [rate] = await sql<{ wage: number }[]>`SELECT wage FROM daily_wage_rates WHERE work_date = ${workDate}`;
+  return rate?.wage ?? baseDailyWage;
+}
+
+/** 그날 일당을 정하고, 정산 확정 전인 그날 기록의 당일 일당을 모두 같은 금액으로 바꾼다. */
+export async function setDayWage(sql: Sql, input: { workDate: string; wage: number; adminId: string }) {
+  return tx(sql, async (t) => {
+    const [prev] = await t<{ wage: number }[]>`SELECT wage FROM daily_wage_rates WHERE work_date = ${input.workDate}`;
+    await t`INSERT INTO daily_wage_rates (work_date, wage, updated_by) VALUES (${input.workDate}, ${input.wage}, ${input.adminId})
+            ON CONFLICT (work_date) DO UPDATE SET wage = EXCLUDED.wage, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+    // 되돌릴 수 있도록 바뀐 기록의 원래 금액을 감사 로그에 남긴다.
+    const changed = await t<{ record_id: string; previous: number }[]>`
+      UPDATE daily_wages dw SET actual_wage = ${input.wage} FROM work_records r, daily_wages old
+      WHERE r.id = dw.work_record_id AND old.id = dw.id AND r.work_date = ${input.workDate} AND r.deleted_at IS NULL
+        AND dw.status = 'pending' AND dw.actual_wage <> ${input.wage}
+      RETURNING dw.work_record_id AS record_id, old.actual_wage AS previous`;
+    const [{ confirmed }] = await t<{ confirmed: number }[]>`
+      SELECT count(*)::int AS confirmed FROM work_records r JOIN daily_wages dw ON dw.work_record_id = r.id
+      WHERE r.work_date = ${input.workDate} AND r.deleted_at IS NULL AND dw.status = 'confirmed'`;
+    await audit(t, {
+      administratorId: input.adminId, action: "wage.day_rate", targetType: "work_date", targetId: input.workDate,
+      before: { wage: prev?.wage ?? null, records: changed }, after: { wage: input.wage, records_changed: changed.length },
+    });
+    return { workDate: input.workDate, wage: input.wage, changed: changed.length, skippedConfirmed: confirmed };
+  });
+}
+
 export type ClockResult = { recordId: string; workDate: string; at: Date; workerName: string; workerNumber: number };
 
 /** 시각은 항상 서버가 정한다. now 인자는 테스트 전용이며 API에서 전달하지 않는다. */
@@ -131,7 +160,7 @@ export async function clockIn(sql: Sql, input: { workerNumber: number; actor: Ac
         VALUES (${w.id}, ${workDate}, ${now}, 'kiosk', ${deviceId}) RETURNING id`;
       recordId = r.id;
       await t`INSERT INTO daily_wages (work_record_id, base_wage, actual_wage)
-              VALUES (${recordId}, ${w.base_daily_wage}, ${w.base_daily_wage})`;
+              VALUES (${recordId}, ${w.base_daily_wage}, ${await wageFor(t, workDate, w.base_daily_wage)})`;
     }
     await logEvent(t, { workerId: w.id, workerNumber: w.worker_number, recordId, type: "clock_in", outcome: "success", actor: input.actor, at: now });
     return { recordId, workDate, at: now, workerName: w.name, workerNumber: w.worker_number };
@@ -242,8 +271,9 @@ export async function getDaily(sql: Sql, date: string) {
     FROM work_records r JOIN workers w ON w.id = r.worker_id JOIN daily_wages dw ON dw.work_record_id = r.id
     WHERE r.work_date = ${date} AND r.deleted_at IS NULL
     ORDER BY r.clock_in_at NULLS LAST, w.worker_number`;
+  const [rate] = await sql<{ wage: number }[]>`SELECT wage FROM daily_wage_rates WHERE work_date = ${date}`;
   return {
-    date, rows,
+    date, rows, dayWage: rate?.wage ?? null,
     summary: {
       total: rows.length,
       working: rows.filter((r) => r.attendance_status === "working").length,
@@ -294,7 +324,7 @@ export async function addManualRecords(sql: Sql, input: {
       const [r] = await t<{ id: string }[]>`
         INSERT INTO work_records (worker_id, work_date, clock_in_at, clock_out_at, source, created_by)
         VALUES (${w.id}, ${input.workDate}, ${input.clockInAt ?? null}, ${input.clockOutAt ?? null}, 'manual', ${input.adminId}) RETURNING id`;
-      await t`INSERT INTO daily_wages (work_record_id, base_wage, actual_wage) VALUES (${r.id}, ${w.base_daily_wage}, ${w.base_daily_wage})`;
+      await t`INSERT INTO daily_wages (work_record_id, base_wage, actual_wage) VALUES (${r.id}, ${w.base_daily_wage}, ${await wageFor(t, input.workDate, w.base_daily_wage)})`;
       await logEvent(t, { workerId: w.id, workerNumber: w.worker_number, recordId: r.id, type: "manual_create", outcome: "success", actor });
       await audit(t, {
         administratorId: input.adminId, action: "attendance.manual_create", targetType: "work_record", targetId: r.id,

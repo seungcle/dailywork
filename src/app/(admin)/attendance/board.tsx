@@ -14,13 +14,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useApiData } from "@/hooks/use-api-data";
 import { api } from "@/lib/api";
-import { addDays, formatClock, formatDateTime, formatPhone, formatWon, fromKstInput, kstDate, toKstInput } from "@/lib/format";
+import { addDays, formatClock, formatDateTime, formatPhone, formatWon, fromKstInput, kstDate, parseMoney, toKstInput } from "@/lib/format";
 
 type Row = {
   record_id: string; worker_id: string; phone: string; name: string; work_date: string; clock_in_at: string | null; clock_out_at: string | null;
   source: string; clock_out_auto: boolean; base_wage: number; actual_wage: number; extra_pay: number; final_wage: number; wage_status: string; attendance_status: string;
 };
-type Daily = { date: string; rows: Row[]; summary: { total: number; working: number; done: number; scheduled: number; missingOut: number; totalWage: number } };
+type Daily = { date: string; dayWage: number | null; rows: Row[]; summary: { total: number; working: number; done: number; scheduled: number; missingOut: number; totalWage: number } };
 
 export function AttendanceBoard({ date }: { date: string }) {
   const router = useRouter();
@@ -54,6 +54,7 @@ export function AttendanceBoard({ date }: { date: string }) {
         <Input type="date" aria-label="날짜 선택" className="w-40" value={date} onChange={(e) => setDate(e.target.value)} />
         <Button variant="outline" size="icon" aria-label="다음 날짜" onClick={() => setDate(addDays(date, 1))}><ChevronRight className="size-4" /></Button>
         {date !== today && <Button variant="ghost" onClick={() => setDate(today)}>오늘로</Button>}
+        {data && !stale && <DayWage key={`${data.date}-${data.dayWage}`} date={data.date} dayWage={data.dayWage} count={data.rows.filter((r) => r.wage_status !== "confirmed").length} onSaved={reload} />}
       </div>
 
       {error && !data ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <LoadingState /> : data && (
@@ -157,6 +158,32 @@ function MoneyCell({ recordId, field, value, label, disabled, onSaved }: { recor
       onFocus={(e) => { setDraft(String(value)); requestAnimationFrame(() => e.target.select()); }}
       onChange={(e) => setDraft(e.target.value)} onBlur={save}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setDraft(null); requestAnimationFrame(() => (e.target as HTMLInputElement).blur()); } }} />
+  );
+}
+
+/** 그날 일당을 정하면 그날 기록 전원(정산 확정 제외)과 이후 출근자에게 같은 금액이 들어간다. */
+function DayWage({ date, dayWage, count, onSaved }: { date: string; dayWage: number | null; count: number; onSaved: () => void }) {
+  const [value, setValue] = useState(dayWage === null ? "" : String(dayWage));
+  const [confirming, setConfirming] = useState(false);
+  const wage = parseMoney(value);
+  const ready = value.trim() !== "" && wage !== null && wage !== dayWage;
+  return (
+    <form className="ml-auto flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (ready) setConfirming(true); }}>
+      <Label htmlFor="day-wage" className="text-sm whitespace-nowrap">이 날 일당</Label>
+      <Input id="day-wage" inputMode="numeric" className="w-28 text-right tabular-nums" placeholder={dayWage === null ? "미지정" : undefined}
+        value={value} onChange={(e) => setValue(e.target.value)} aria-invalid={wage === null} />
+      <span className="text-sm text-muted-foreground">원</span>
+      <Button type="submit" variant="outline" disabled={!ready}>적용</Button>
+      <ConfirmDialog open={confirming} onOpenChange={setConfirming} title={`${date} 일당 적용`} confirmLabel="적용"
+        description={`이 날 출석 명단 ${count}명의 당일 일당을 ${(wage ?? 0).toLocaleString()}원으로 바꿉니다. 이후 이 날 출근하는 사람에게도 같은 금액이 들어갑니다. 정산을 확정한 기록은 바뀌지 않습니다.`}
+        onConfirm={async () => {
+          try {
+            const r = await api<{ changed: number; skippedConfirmed: number }>("/api/admin/attendance/day-wage", { method: "PUT", body: { workDate: date, wage } });
+            toast.success(`${date} 일당을 ${(wage ?? 0).toLocaleString()}원으로 정했습니다. ${r.changed}명 변경${r.skippedConfirmed ? `, 확정된 ${r.skippedConfirmed}명은 그대로` : ""}`);
+            onSaved();
+          } catch (e) { toast.error((e as Error).message); throw e; }
+        }} />
+    </form>
   );
 }
 
