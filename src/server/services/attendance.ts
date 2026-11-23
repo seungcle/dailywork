@@ -256,8 +256,16 @@ export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) 
   return {
     name: w.name, maskedName: w.name, state, overtime,
     bankName: account?.bank_name ?? null,
-    accountNumber: account ? decryptField(account.account_number_enc) : null,
+    accountNumber: account ? readAccount(account.account_number_enc, w.id) : null,
   };
+}
+
+/** 계좌를 읽지 못해도 출근은 막지 않는다. 화면에는 계좌 확인이 필요하다고 보인다. */
+function readAccount(enc: string, workerId: string) {
+  try { return decryptField(enc); } catch (e) {
+    console.error("[kiosk] 계좌번호 복호화 실패", { workerId, error: (e as Error).message });
+    return null;
+  }
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────

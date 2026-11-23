@@ -101,6 +101,19 @@ describe("비등록 키오스크 차단", () => {
     expect(body.accountNumber).toBeNull();
   });
 
+  it("계좌번호를 읽지 못해도 조회와 출근은 막지 않는다", async () => {
+    const phone = "01077778888";
+    const w = await seedWorker(adminId, { phone, bankName: "국민은행", accountNumber: "123456789012" });
+    await sql`UPDATE worker_payment_accounts SET account_number_enc = 'v1:broken' WHERE worker_id = ${w.id}`;
+    const k = await seedKiosk(adminId);
+    const cookies = kioskCookie(k.token);
+    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone }, cookies }), noParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ bankName: "국민은행", accountNumber: null, state: "can_clock_in" });
+    const rec = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone, action: "clock_in" }, cookies }), noParams);
+    expect(rec.status).toBe(200);
+  });
+
   it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
     const k = await seedKiosk(adminId);
     const cookies = kioskCookie(k.token);

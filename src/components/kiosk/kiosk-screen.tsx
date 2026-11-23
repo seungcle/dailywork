@@ -201,7 +201,7 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
               <div className="mt-1 text-2xl font-semibold text-blue-200 tabular-nums">
                 {screen.worker.accountNumber
                   ? [screen.worker.bankName, screen.worker.accountNumber].filter(Boolean).join(" ")
-                  : "등록된 계좌 없음"}
+                  : screen.worker.bankName ? `${screen.worker.bankName} 계좌 확인 필요 (관리자에게 문의)` : "등록된 계좌 없음"}
               </div>
               <div className="mt-1 text-6xl font-bold">{screen.worker.name} 님</div>
               <div className="mt-3 text-xl text-blue-100">본인이 맞으면 아래 버튼을 눌러 주세요.</div>
