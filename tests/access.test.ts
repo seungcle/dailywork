@@ -77,14 +77,41 @@ describe("비등록 키오스크 차단", () => {
     expect(res.status).toBe(403);
   });
 
-  it("응답에는 이름만 그대로 담고 전화번호·계좌 정보는 담지 않는다", async () => {
+  it("응답에는 이름·은행명·계좌번호 전체를 담고 전화번호·주민번호는 담지 않는다", async () => {
     const k = await seedKiosk(adminId);
-    await sql`UPDATE workers SET name = '홍길동' WHERE phone = ${PHONE}`;
-    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies: kioskCookie(k.token) }), noParams);
+    const phone = "01055551111";
+    await seedWorker(adminId, { phone, name: "홍길동", rrn: "900101-1234567", bankName: "국민은행", accountNumber: "123-456-789012", accountHolder: "홍길동" });
+    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone }, cookies: kioskCookie(k.token) }), noParams);
     const text = await res.text();
-    expect(JSON.parse(text).name).toBe("홍길동");
-    expect(text).not.toContain(PHONE.slice(3));
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["maskedName", "name", "overtime", "state"]);
+    const body = JSON.parse(text);
+    expect(body.name).toBe("홍길동");
+    expect(body.bankName).toBe("국민은행");
+    expect(body.accountNumber).toBe("123456789012");
+    expect(text).not.toContain(phone.slice(3));
+    expect(text).not.toContain("9001011234567");
+    expect(text).not.toContain("900101");
+    expect(Object.keys(body).sort()).toEqual(["accountNumber", "bankName", "maskedName", "name", "overtime", "state"]);
+  });
+
+  it("현재 계좌가 없는 근무자는 은행명·계좌번호를 null로 준다", async () => {
+    const k = await seedKiosk(adminId);
+    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone: PHONE }, cookies: kioskCookie(k.token) }), noParams);
+    const body = await res.json();
+    expect(body.bankName).toBeNull();
+    expect(body.accountNumber).toBeNull();
+  });
+
+  it("계좌번호를 읽지 못해도 조회와 출근은 막지 않는다", async () => {
+    const phone = "01077778888";
+    const w = await seedWorker(adminId, { phone, bankName: "국민은행", accountNumber: "123456789012" });
+    await sql`UPDATE worker_payment_accounts SET account_number_enc = 'v1:broken' WHERE worker_id = ${w.id}`;
+    const k = await seedKiosk(adminId);
+    const cookies = kioskCookie(k.token);
+    const res = await lookup(request("/api/kiosk/lookup", { method: "POST", body: { phone }, cookies }), noParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ bankName: "국민은행", accountNumber: null, state: "can_clock_in" });
+    const rec = await attendance(request("/api/kiosk/attendance", { method: "POST", body: { phone, action: "clock_in" }, cookies }), noParams);
+    expect(rec.status).toBe(200);
   });
 
   it("휴대폰 번호로 조회·출근하고 고유번호는 응답에 내주지 않는다", async () => {
