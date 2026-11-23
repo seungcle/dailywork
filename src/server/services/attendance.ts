@@ -2,6 +2,7 @@ import type { Sql } from "../db";
 import { tx } from "../db";
 import { AppError, badRequest, conflict, notFound, pgCode } from "../errors";
 import { audit } from "../audit";
+import { decryptField } from "../crypto";
 import { getMaxShiftHours } from "./settings";
 
 export type Actor = { kind: "kiosk"; deviceId: string } | { kind: "admin"; adminId: string };
@@ -229,7 +230,11 @@ export type KioskState = "can_clock_in" | "working" | "completed_today" | "needs
 /** 야근 모드에서 기록할 수 있는지: ok, 출근 기록 없음, 18시 전, 정산 확정됨 */
 export type OvertimeState = "ok" | "no_record" | "too_early" | "confirmed";
 
-/** 번호 확인 화면용. 이름은 가려서 내려 주고 민감정보는 포함하지 않는다. */
+/**
+ * 번호 확인 화면용. 이름, 현재 계좌의 은행명·계좌번호 원문(가리지 않음)을 내려 준다.
+ * 계좌번호 전체 표시는 운영자가 "번호만 알면 누구나 볼 수 있다"는 점을 알고 정한 것이다.
+ * 전화번호와 주민등록번호는 응답에 담지 않는다. 현재 계좌가 없으면 bankName·accountNumber는 null.
+ */
 export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) {
   const [w] = await sql<WorkerRow[]>`SELECT id, worker_number, name, is_active, base_daily_wage FROM workers WHERE phone = ${phone}`;
   if (!w) throw new AttendanceError("WORKER_NOT_FOUND");
@@ -246,7 +251,13 @@ export async function lookupForKiosk(sql: Sql, phone: string, now = new Date()) 
   const shift = await latestShift(sql, w.id, now);
   const overtime: OvertimeState = !shift ? "no_record" : shift.status === "confirmed" ? "confirmed" : now < shift.overtime_from ? "too_early" : "ok";
   // maskedName은 배포 전부터 열려 있던 키오스크 화면이 읽는 이름 칸이다. 그 화면에도 이름 전체가 보이도록 같은 값을 함께 준다.
-  return { name: w.name, maskedName: w.name, state, overtime };
+  const [account] = await sql<{ bank_name: string | null; account_number_enc: string }[]>`
+    SELECT bank_name, account_number_enc FROM worker_payment_accounts WHERE worker_id = ${w.id} AND is_current`;
+  return {
+    name: w.name, maskedName: w.name, state, overtime,
+    bankName: account?.bank_name ?? null,
+    accountNumber: account ? decryptField(account.account_number_enc) : null,
+  };
 }
 
 // ── 일일 출석부 (관리자) ───────────────────────────────

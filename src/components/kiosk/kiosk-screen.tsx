@@ -9,6 +9,9 @@ type Lookup = {
   name: string;
   state: "can_clock_in" | "working" | "completed_today" | "needs_admin";
   overtime: "ok" | "no_record" | "too_early" | "confirmed";
+  // 배포 전 서버는 이 두 칸을 주지 않으므로 없을 수도 있다.
+  bankName?: string | null;
+  accountNumber?: string | null;
 };
 type Action = "clock_in" | "overtime";
 type Screen =
@@ -195,6 +198,11 @@ export function KioskScreen({ deviceName }: { deviceName: string }) {
           <div className="flex w-full max-w-3xl flex-col items-center gap-7 text-center">
             <div>
               <div className="text-lg text-blue-200 tabular-nums">{formatPhone(screen.phone)}</div>
+              <div className="mt-1 text-2xl font-semibold text-blue-200 tabular-nums">
+                {screen.worker.accountNumber
+                  ? [screen.worker.bankName, screen.worker.accountNumber].filter(Boolean).join(" ")
+                  : "등록된 계좌 없음"}
+              </div>
               <div className="mt-1 text-6xl font-bold">{screen.worker.name} 님</div>
               <div className="mt-3 text-xl text-blue-100">본인이 맞으면 아래 버튼을 눌러 주세요.</div>
             </div>
